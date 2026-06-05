@@ -1,0 +1,21 @@
+{
+  "name": "quickaid",
+  "version": "1.0.0",
+  "description": "QuickAid AI emergency coordination webapp",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js"
+  },
+  "keywords": [
+    "emergency",
+    "coordination",
+    "singapore",
+    "quickaid"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

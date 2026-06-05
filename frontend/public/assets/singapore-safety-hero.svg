@@ -1,0 +1,182 @@
+<svg width="1600" height="980" viewBox="0 0 1600 980" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">QuickAid emergency coordination platform overview</title>
+  <desc id="desc">A central Singapore emergency dashboard connected to live map, resources, volunteers, alerts, risk prediction, and public reporting modules.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="160" y1="60" x2="1450" y2="930" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FCFA"/>
+      <stop offset=".55" stop-color="#EEF7F1"/>
+      <stop offset="1" stop-color="#F7F1E8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#12312D" flood-opacity=".16"/>
+    </filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#12312D" flood-opacity=".12"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M2 2L10 6L2 10" stroke="#0A4F49" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="980" rx="34" fill="url(#bg)"/>
+  <circle cx="1320" cy="162" r="86" fill="#FFE7B4"/>
+  <path d="M0 780C135 716 236 755 384 772C535 789 658 707 820 724C987 742 1107 820 1289 756C1404 716 1497 704 1600 728V980H0V780Z" fill="#DDEFE6"/>
+  <path d="M0 850C210 778 359 843 528 855C715 867 842 802 1008 828C1188 856 1290 895 1600 815V980H0V850Z" fill="#C7E2D2"/>
+
+  <g opacity=".34">
+    <rect x="64" y="150" width="118" height="190" rx="12" fill="#CBDED5"/>
+    <rect x="210" y="90" width="164" height="250" rx="14" fill="#D8E7E0"/>
+    <rect x="404" y="184" width="102" height="156" rx="12" fill="#D0E2DA"/>
+    <rect x="1262" y="260" width="210" height="176" rx="18" fill="#CFE3DA"/>
+    <rect x="1308" y="298" width="28" height="80" rx="5" fill="#F7FCF9"/>
+    <rect x="1362" y="298" width="28" height="80" rx="5" fill="#F7FCF9"/>
+    <rect x="1416" y="298" width="28" height="80" rx="5" fill="#F7FCF9"/>
+  </g>
+
+  <g stroke="#0A4F49" stroke-width="3" stroke-linecap="round" marker-end="url(#arrow)" opacity=".9">
+    <path d="M494 355C420 300 340 250 257 217"/>
+    <path d="M526 695C430 744 344 789 268 832"/>
+    <path d="M798 733C798 794 798 850 798 890"/>
+    <path d="M1078 693C1204 760 1302 816 1371 860"/>
+    <path d="M1110 355C1226 292 1327 239 1414 198"/>
+    <path d="M1117 515C1232 512 1328 511 1414 511"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="454" y="270" width="694" height="464" rx="26" fill="#FFFFFF" stroke="#D7E3DD" stroke-width="2"/>
+    <rect x="454" y="270" width="694" height="70" rx="26" fill="#0A4F49"/>
+    <path d="M454 316H1148" stroke="#0A4F49" stroke-width="46"/>
+    <g transform="translate(486 294)">
+      <rect width="26" height="18" rx="3" fill="#F7FCF9"/>
+      <rect y="23" width="26" height="4" rx="2" fill="#A8D6C8"/>
+    </g>
+    <text x="526" y="304" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800">AI-assisted national resource dashboard</text>
+    <text x="526" y="329" fill="#BFE5DA" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700">Singapore emergency overview</text>
+    <rect x="970" y="291" width="70" height="30" rx="15" fill="#FFFFFF" fill-opacity=".14"/>
+    <circle cx="990" cy="306" r="5" fill="#48D597"/>
+    <text x="1004" y="311" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="800">Live</text>
+    <rect x="1058" y="291" width="58" height="30" rx="15" fill="#FFFFFF" fill-opacity=".14"/>
+    <text x="1075" y="311" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="800">AI</text>
+
+    <rect x="487" y="365" width="274" height="244" rx="16" fill="#EFF7F4" stroke="#D8E7E0"/>
+    <rect x="506" y="384" width="236" height="42" rx="8" fill="#FFFFFF"/>
+    <text x="536" y="410" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">Singapore Live Map</text>
+    <path d="M536 507C560 474 602 460 636 473C673 486 690 456 724 444C758 432 793 456 792 493C791 548 722 567 661 556C606 546 520 554 536 507Z" fill="#F8CFA7" stroke="#0F766E" stroke-width="3"/>
+    <path d="M558 505C596 496 631 513 661 494C698 471 725 487 761 476" stroke="#0F766E" stroke-width="5" stroke-linecap="round"/>
+    <path d="M581 546C620 524 642 539 676 518C710 498 727 512 754 502" stroke="#C47A1B" stroke-width="4" stroke-linecap="round" stroke-dasharray="2 12"/>
+    <circle cx="583" cy="506" r="10" fill="#2F80ED" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="662" cy="493" r="10" fill="#E94435" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="742" cy="477" r="10" fill="#E94435" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="710" cy="536" r="10" fill="#0F766E" stroke="#FFFFFF" stroke-width="4"/>
+    <rect x="522" y="568" width="76" height="20" rx="10" fill="#FFE7E4"/>
+    <circle cx="538" cy="578" r="5" fill="#E94435"/>
+    <text x="550" y="583" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="11" font-weight="800">Fire</text>
+    <rect x="610" y="568" width="82" height="20" rx="10" fill="#E6F1FF"/>
+    <circle cx="626" cy="578" r="5" fill="#2F80ED"/>
+    <text x="638" y="583" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="11" font-weight="800">Flood</text>
+
+    <rect x="783" y="365" width="332" height="92" rx="16" fill="#FFF4F3" stroke="#F2C8C5"/>
+    <text x="808" y="394" fill="#8D1E16" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="900">Critical flooding detected</text>
+    <text x="808" y="420" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">Jurong West • NUH occupancy high</text>
+    <rect x="1005" y="395" width="78" height="30" rx="8" fill="#E94435"/>
+    <text x="1020" y="415" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">HIGH</text>
+
+    <g transform="translate(783 483)">
+      <rect width="150" height="96" rx="14" fill="#F7FAF8" stroke="#D8E7E0"/>
+      <text x="18" y="30" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="800">SCDF units</text>
+      <text x="18" y="68" fill="#0F766E" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="900">18</text>
+      <text x="67" y="68" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="800">available</text>
+    </g>
+    <g transform="translate(954 483)">
+      <rect width="160" height="96" rx="14" fill="#F7FAF8" stroke="#D8E7E0"/>
+      <text x="18" y="30" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="800">Hospital vacancy</text>
+      <text x="18" y="68" fill="#C47A1B" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="900">82%</text>
+    </g>
+
+    <rect x="783" y="602" width="332" height="92" rx="16" fill="#EFF7F4" stroke="#D8E7E0"/>
+    <text x="808" y="630" fill="#0A4F49" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="900">AI response queue</text>
+    <text x="808" y="656" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="800">Redirect PIE traffic • Deploy SCDF • Activate shelter</text>
+    <rect x="1005" y="640" width="78" height="30" rx="8" fill="#0F766E"/>
+    <text x="1020" y="660" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">APPLY</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="108" y="118" width="292" height="180" rx="22" fill="#FFFFFF" stroke="#D8E7E0"/>
+    <text x="134" y="154" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Incident tracking</text>
+    <text x="134" y="181" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">Real-time crisis monitoring</text>
+    <rect x="134" y="212" width="76" height="42" rx="10" fill="#FFE7E4"/>
+    <text x="157" y="239" fill="#E94435" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">5</text>
+    <rect x="224" y="212" width="86" height="42" rx="10" fill="#E6F1FF"/>
+    <text x="255" y="239" fill="#2F80ED" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">3</text>
+    <rect x="324" y="212" width="50" height="42" rx="10" fill="#EAF7EF"/>
+    <text x="340" y="239" fill="#0F766E" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">1</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="82" y="750" width="344" height="166" rx="22" fill="#FFFFFF" stroke="#D8E7E0"/>
+    <text x="112" y="788" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Volunteer coordination</text>
+    <g transform="translate(112 812)">
+      <circle cx="24" cy="24" r="20" fill="#DCE8E2"/>
+      <text x="58" y="20" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="900">Alice Tan</text>
+      <text x="58" y="42" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700">Medical • 5 km away</text>
+      <rect x="232" y="9" width="74" height="28" rx="8" fill="#0F766E"/>
+      <text x="249" y="28" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-size="12" font-weight="900">Deploy</text>
+    </g>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="637" y="828" width="322" height="114" rx="22" fill="#FFFFFF" stroke="#D8E7E0"/>
+    <text x="668" y="866" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Risk prediction</text>
+    <text x="668" y="894" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="800">Flood spread + congestion forecast</text>
+    <path d="M668 918L720 888L774 908L826 874L908 916" stroke="#C47A1B" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="1194" y="770" width="322" height="150" rx="22" fill="#FFFFFF" stroke="#D8E7E0"/>
+    <text x="1224" y="808" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Alert centre</text>
+    <text x="1224" y="836" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="800">Broadcast verified instructions</text>
+    <rect x="1224" y="862" width="82" height="30" rx="8" fill="#E6F1FF"/>
+    <text x="1246" y="882" fill="#2F80ED" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">SMS</text>
+    <rect x="1318" y="862" width="110" height="30" rx="8" fill="#EAF7EF"/>
+    <text x="1342" y="882" fill="#0F766E" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">WhatsApp</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="1190" y="420" width="320" height="180" rx="22" fill="#FFFFFF" stroke="#D8E7E0"/>
+    <text x="1220" y="458" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Incident details</text>
+    <text x="1220" y="486" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="800">Approve actions with one shared source</text>
+    <rect x="1220" y="520" width="116" height="34" rx="8" fill="#EAF7EF"/>
+    <text x="1242" y="542" fill="#0F766E" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">Approve</text>
+    <rect x="1350" y="520" width="116" height="34" rx="8" fill="#FFF1D8"/>
+    <text x="1374" y="542" fill="#C47A1B" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">Escalate</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="1184" y="118" width="332" height="174" rx="22" fill="#FFFFFF" stroke="#D8E7E0"/>
+    <text x="1214" y="156" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Public reports</text>
+    <text x="1214" y="184" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="800">Residents report flood, fire, accident</text>
+    <rect x="1214" y="216" width="78" height="36" rx="9" fill="#E6F1FF"/>
+    <text x="1238" y="239" fill="#2F80ED" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">Flood</text>
+    <rect x="1306" y="216" width="68" height="36" rx="9" fill="#FFE7E4"/>
+    <text x="1328" y="239" fill="#E94435" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">Fire</text>
+    <rect x="1388" y="216" width="84" height="36" rx="9" fill="#F4F2EE"/>
+    <text x="1406" y="239" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">Medical</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="74" y="434" width="300" height="164" rx="22" fill="#FFFFFF" stroke="#D8E7E0"/>
+    <text x="104" y="472" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Resource allocation</text>
+    <text x="104" y="500" fill="#5E655F" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="800">Hospitals • shelters • responders</text>
+    <rect x="104" y="530" width="108" height="40" rx="10" fill="#EAF7EF"/>
+    <text x="126" y="556" fill="#0F766E" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="900">Shelter 90%</text>
+    <rect x="226" y="530" width="108" height="40" rx="10" fill="#FFF1D8"/>
+    <text x="247" y="556" fill="#C47A1B" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="900">NUH 82%</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="622" y="40" width="356" height="116" rx="22" fill="#FFFFFF" stroke="#D8E7E0"/>
+    <text x="652" y="82" fill="#0A4F49" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">With QuickAid</text>
+    <text x="652" y="112" fill="#121312" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="900">18 min avg response • 95% allocation accuracy</text>
+  </g>
+</svg>
