@@ -32,6 +32,8 @@ function icon(name) {
     users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8" />',
     lock: '<rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />',
     info: '<circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />',
+    alert: '<path d="M10.3 3.4 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.4a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01" />',
+    activity: '<path d="M3 12h4l2.2-7 4.1 14 2.2-7H21" />',
     google: '<path d="M21.8 12.2c0-.7-.1-1.3-.2-1.9H12v3.6h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.2c1.9-1.8 3.1-4.4 3.1-7.4z" /><path d="M12 22c2.7 0 5-0.9 6.7-2.4L15.5 17a6 6 0 0 1-8.9-3.1H3.3v2.7A10 10 0 0 0 12 22z" /><path d="M6.6 13.9a6 6 0 0 1 0-3.8V7.4H3.3a10 10 0 0 0 0 9.2l3.3-2.7z" /><path d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-8.7 5.4l3.3 2.7A6 6 0 0 1 12 6z" />'
   };
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
@@ -51,8 +53,8 @@ function header({ backHref = "", nav = false } = {}) {
         <nav class="top-nav" aria-label="Main navigation">
           <a href="#about">About</a>
           <a href="#features">Features</a>
-          <a href="#/dashboard">Live Dashboard</a>
           <a href="#contact">Contact</a>
+          <a class="nav-live-link" href="#/dashboard"><span></span> Live Dashboard</a>
         </nav>
       ` : `
         <a class="back-link" href="${backHref || "#/"}">${icon("arrowLeft")} Back</a>
@@ -64,17 +66,57 @@ function header({ backHref = "", nav = false } = {}) {
 function renderLanding() {
   app.innerHTML = `
     <div class="page landing-page">
+      <aside class="incident-banner" aria-label="Active incident">
+        ${icon("alert")}
+        <p><strong>Active incident:</strong> Critical flooding in Jurong West. SCDF deployed. 3 incidents open.</p>
+      </aside>
       ${header({ nav: true })}
       <main>
         <section class="hero" id="about">
           <div class="hero-copy">
-            <p class="eyebrow">Singapore emergency response</p>
+            <p class="eyebrow urgent-eyebrow"><span></span> Singapore emergency response</p>
             <h1>Helping Singapore respond faster during crisis</h1>
-            <p>A unified operational coordination platform powered by AI for real-time emergency management and resource optimisation.</p>
-            <a class="primary-button" href="#/login">Live Emergency Status ${icon("arrowRight")}</a>
+            <p class="hero-summary">A unified operational coordination platform powered by AI for real-time emergency management and resource optimisation.</p>
+            <div class="hero-actions">
+              <a class="primary-button status-button" href="#/dashboard">${icon("activity")} Live emergency status ${icon("arrowRight")}</a>
+              <a class="secondary-button sign-in-button" href="#/login">Sign in</a>
+            </div>
+            <p class="access-note">For emergency professionals, residents, and volunteers.</p>
           </div>
-          <div class="hero-media">
-            <img src="/assets/singapore-safety-hero.svg" alt="Singapore responders and volunteers coordinating community safety support" />
+          <div class="hero-dashboard" aria-label="Live emergency dashboard preview">
+            <div class="preview-header">
+              <h2>AI-assisted national resource dashboard</h2>
+              <span class="live-badge"><i></i> Live</span>
+            </div>
+            <section class="critical-alert">
+              ${icon("alert")}
+              <div>
+                <strong>Critical flooding detected - Jurong West</strong>
+                <p>NUH occupancy high · SCDF on site · TPE accident ongoing</p>
+              </div>
+            </section>
+            <div class="preview-metrics">
+              <article>
+                <span>SCDF units available</span>
+                <strong>18</strong>
+              </article>
+              <article>
+                <span>Hospital vacancy</span>
+                <strong class="danger-value">82%</strong>
+              </article>
+            </div>
+            <section class="ai-action">
+              <span>AI suggestion</span>
+              <p>Redirect PIE traffic · Deploy private shelter</p>
+              <button type="button">Apply</button>
+            </section>
+            <div class="response-track">
+              <div><span>Detected</span><strong>12:42</strong></div>
+              <i></i>
+              <div><span>SCDF deployed</span><strong>12:47</strong></div>
+              <i></i>
+              <div><span>Shelter ready</span><strong>12:51</strong></div>
+            </div>
           </div>
         </section>
 

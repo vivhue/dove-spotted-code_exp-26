@@ -3,17 +3,28 @@ QuickAid Webapp
 
 AI emergency coordination webapp for DSTA code_exp 2026.
 
-Run locally:
+Install dependencies once:
 
 ```bash
-npm start
+npm install
+```
+
+Run during development with automatic backend restarts:
+
+```bash
+npm run dev
 ```
 
 Then open:
 
 ```text
-http://localhost:3000
+http://127.0.0.1:3000
 ```
+
+Use `npm start` when you do not need automatic restarts.
+
+When editing files in `frontend/public/`, refresh the browser to see the
+changes. Nodemon automatically restarts when backend files change.
 
 Implemented flow:
 
