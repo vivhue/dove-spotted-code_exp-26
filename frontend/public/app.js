@@ -7,7 +7,9 @@ const routes = {
   "#/login/professional": renderProfessionalLogin,
   "#/login/public": renderPublicLogin,
   "#/dashboard": renderDashboard,
-  "#/flood-map": renderFloodMap
+  "#/flood-map": renderFloodMap,
+  "#/risk-prediction": renderRiskPrediction,
+  "#/analytics": renderAnalytics
 };
 
 const capabilities = [
@@ -422,6 +424,7 @@ async function renderDashboard() {
             <span class="ops-live">${icon("activity")} Live</span>
             <span class="updated-pill">Last Updated : 5:00 PM</span>
             <a class="secondary-button compact" href="#/flood-map">${icon("alert")} Live Flood Map</a>
+            <a class="secondary-button compact" href="#/risk-prediction">${icon("activity")} Risk Prediction</a>
             <button class="secondary-button compact" data-signout>Sign Out</button>
           </div>
         </header>
@@ -760,6 +763,229 @@ async function renderFloodMap() {
 
   await refresh();
   floodMapTimer = window.setInterval(refresh, 60_000);
+}
+
+async function renderRiskPrediction() {
+  app.innerHTML = `
+    <div class="page risk-page">
+      ${header({ backHref: "#/dashboard" })}
+      <main class="risk-shell">
+        <section class="risk-title">
+          <p class="eyebrow">Risk Prediction</p>
+          <h1>Singapore Live Risk Map</h1>
+        </section>
+        <div class="risk-controls">
+          <div class="risk-tabs" style="margin-bottom:8px">
+            <button id="tab-api" class="secondary-button compact">Live API</button>
+            <button id="tab-db" class="secondary-button compact">DB Reports</button>
+          </div>
+          <label>Filters:
+            <div class="filters-row">
+              <select id="filter-severity">
+                <option value="all">All severities</option>
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+              <select id="filter-window">
+                <option value="4">Next 4 hours</option>
+                <option value="12">Next 12 hours</option>
+                <option value="24">Next 24 hours</option>
+              </select>
+              <input id="filter-region" placeholder="Region (optional)" />
+              <button id="filter-apply" class="secondary-button">Apply</button>
+            </div>
+          </label>
+        </div>
+
+        <div class="risk-layout">
+          <div class="risk-map" id="risk-map" style="height:520px; background:#f4f4f4; display:flex;align-items:center;justify-content:center">Loading map…</div>
+          <aside class="risk-panel" id="risk-panel">
+            <h2>AI Predictions</h2>
+            <div id="ai-prediction" class="ai-box">
+              <p class="muted">Select a zone on the map to see targeted predictions and recommended actions.</p>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  `;
+
+  // Load Leaflet and fetch heatmap
+  try {
+    await loadStylesheet("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+    await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
+
+    const map = L.map("risk-map").setView([1.3521, 103.8198], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(map);
+    const layer = L.layerGroup().addTo(map);
+
+    let currentSource = 'api'; // 'api' or 'db'
+
+    function selectEndpoint(source, kind) {
+      if (source === 'db') {
+        return kind === 'heatmap' ? '/api/risk/heatmap-db' : '/api/risk/predict-db';
+      }
+      return kind === 'heatmap' ? '/api/risk/heatmap' : '/api/risk/predict';
+    }
+
+    async function loadHeatmap(filters = {}, source = 'api') {
+      const q = new URLSearchParams();
+      q.set('region', filters.region || 'all');
+      q.set('window', filters.window || '4');
+      const url = selectEndpoint(source, 'heatmap') + '?' + q.toString();
+      const resp = await fetch(url);
+      return resp.json();
+    }
+
+    const payload = await loadHeatmap({}, currentSource);
+    const features = payload.features || [];
+    features.forEach((f) => {
+      const [lng, lat] = f.geometry.coordinates;
+      const color = f.properties.severity === 'Critical' ? '#a92525' : f.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+      const marker = L.circle([lat, lng], { radius: 400, color, fillColor: color, fillOpacity: 0.25 }).addTo(layer);
+      marker.on('click', async () => {
+        const zone = f.properties.zoneName || f.properties.zoneId;
+        document.getElementById('ai-prediction').innerHTML = `<p>Loading prediction for <strong>${zone}</strong>…</p>`;
+        try {
+          const predictUrl = selectEndpoint(currentSource, 'predict');
+          const pResp = await fetch(predictUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone, hours: 4 }) });
+          const p = await pResp.json();
+          document.getElementById('ai-prediction').innerHTML = `
+            <h3>${zone}</h3>
+            <p><strong>Severity:</strong> ${p.severity} · <strong>Confidence:</strong> ${Math.round((p.confidence||0)*100)}%</p>
+            <p><strong>Time to impact:</strong> ${p.timeToImpact}</p>
+            <h4>Recommendations</h4>
+            <ul>${(p.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+          `;
+        } catch (e) {
+          document.getElementById('ai-prediction').textContent = 'Prediction failed.';
+        }
+      });
+    });
+    // Wire filter controls
+    // Tab controls
+    document.getElementById('tab-api').addEventListener('click', async () => {
+      currentSource = 'api';
+      document.getElementById('tab-api').classList.add('active');
+      document.getElementById('tab-db').classList.remove('active');
+      const newPayload = await loadHeatmap({ region: 'all' }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const zone2 = ff.properties.zoneName || ff.properties.zoneId;
+          document.getElementById('ai-prediction').innerHTML = `<p>Loading prediction for <strong>${zone2}</strong>…</p>`;
+          const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zone2, hours: 4 }) });
+          const p2 = await pResp2.json();
+          document.getElementById('ai-prediction').innerHTML = `
+            <h3>${zone2}</h3>
+            <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+            <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+            <h4>Recommendations</h4>
+            <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+          `;
+        });
+      });
+    });
+
+    document.getElementById('tab-db').addEventListener('click', async () => {
+      currentSource = 'db';
+      document.getElementById('tab-db').classList.add('active');
+      document.getElementById('tab-api').classList.remove('active');
+      const newPayload = await loadHeatmap({ region: 'all' }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const zone2 = ff.properties.zoneName || ff.properties.zoneId;
+          document.getElementById('ai-prediction').innerHTML = `<p>Loading prediction for <strong>${zone2}</strong>…</p>`;
+          const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zone2, hours: 4 }) });
+          const p2 = await pResp2.json();
+          document.getElementById('ai-prediction').innerHTML = `
+            <h3>${zone2}</h3>
+            <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+            <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+            <h4>Recommendations</h4>
+            <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+          `;
+        });
+      });
+    });
+
+    // Apply filter button
+    document.getElementById('filter-apply').addEventListener('click', async () => {
+      const sev = document.getElementById('filter-severity').value;
+      const wnd = document.getElementById('filter-window').value;
+      const region = document.getElementById('filter-region').value.trim() || 'all';
+      const newPayload = await loadHeatmap({ region, window: wnd }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const zone2 = ff.properties.zoneName || ff.properties.zoneId;
+          document.getElementById('ai-prediction').innerHTML = `<p>Loading prediction for <strong>${zone2}</strong>…</p>`;
+          const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zone2, hours: wnd }) });
+          const p2 = await pResp2.json();
+          document.getElementById('ai-prediction').innerHTML = `
+            <h3>${zone2}</h3>
+            <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+            <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+            <h4>Recommendations</h4>
+            <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+          `;
+        });
+      });
+    });
+  } catch (error) {
+    const el = document.getElementById('risk-map');
+    if (el) el.innerHTML = '<span>Unable to load map.</span>';
+  }
+}
+
+async function renderAnalytics() {
+  app.innerHTML = `
+    <div class="page analytics-page">
+      ${header({ backHref: "#/dashboard" })}
+      <main class="analytics-shell">
+        <section class="analytics-header">
+          <p class="eyebrow">Analytics & Insights</p>
+          <h1>Incident Trends & Resource Usage</h1>
+        </section>
+        <div class="analytics-grid">
+          <canvas id="chart-trends" style="width:100%;height:240px"></canvas>
+          <canvas id="chart-resources" style="width:100%;height:240px"></canvas>
+        </div>
+      </main>
+    </div>
+  `;
+
+  try {
+    await loadScript('https://cdn.jsdelivr.net/npm/chart.js');
+    const tResp = await fetch('/api/analytics/trends');
+    const tPayload = await tResp.json();
+    const labels = (tPayload.series || []).map(s => s.date);
+    const data = (tPayload.series || []).map(s => s.count);
+    const ctx = document.getElementById('chart-trends').getContext('2d');
+    new Chart(ctx, { type: 'line', data: { labels, datasets: [{ label: 'Incidents', data }] } });
+
+    const rResp = await fetch('/api/analytics/resources');
+    const rPayload = await rResp.json();
+    const names = (rPayload.resources || []).map(r => r.name);
+    const occ = (rPayload.resources || []).map(r => r.occupancy);
+    const ctx2 = document.getElementById('chart-resources').getContext('2d');
+    new Chart(ctx2, { type: 'bar', data: { labels: names, datasets: [{ label: 'Occupancy %', data: occ }] } });
+  } catch (error) {
+    const el = document.querySelector('.analytics-shell');
+    if (el) el.insertAdjacentHTML('beforeend', '<p>Unable to load analytics.</p>');
+  }
 }
 
 function renderRoute() {

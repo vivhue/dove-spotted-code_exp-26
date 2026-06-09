@@ -29,6 +29,8 @@ const FLOOD_ALERTS_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather/
 const ONEMAP_REVGEOCODE_URL = "https://www.onemap.gov.sg/api/public/revgeocode";
 
 const cache = new Map();
+const risk = require("./risk");
+const analytics = require("./analytics");
 
 async function cached(key, ttlMs, fetcher) {
   const hit = cache.get(key);
@@ -279,6 +281,49 @@ function sendTelegramMessage(text, chatId = TELEGRAM_CHAT_ID) {
 }
 
 async function handleApi(req, res) {
+  // Route /api/risk/* to backend/risk.js
+  if (req.url.startsWith("/api/risk")) {
+    try {
+      if (req.method === "GET" && req.url.startsWith("/api/risk/heatmap")) {
+        // default heatmap from upstream API / mock
+        await risk.handleHeatmap(req, res, cached);
+        return;
+      }
+      if (req.method === "POST" && req.url.startsWith("/api/risk/predict")) {
+        await risk.handlePredict(req, res);
+        return;
+      }
+      // DB backed endpoints
+      if (req.method === "GET" && req.url.startsWith("/api/risk/heatmap-db")) {
+        await risk.handleHeatmapDb(req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url.startsWith("/api/risk/predict-db")) {
+        await risk.handlePredictDb(req, res);
+        return;
+      }
+    } catch (err) {
+      sendJson(res, 500, { error: "Risk service error." });
+      return;
+    }
+  }
+
+  // Route /api/analytics/* to backend/analytics.js
+  if (req.url.startsWith("/api/analytics")) {
+    try {
+      if (req.method === "GET" && req.url.startsWith("/api/analytics/trends")) {
+        analytics.aggregateTrends(req, res);
+        return;
+      }
+      if (req.method === "GET" && req.url.startsWith("/api/analytics/resources")) {
+        analytics.resourcesUsage(req, res);
+        return;
+      }
+    } catch (err) {
+      sendJson(res, 500, { error: "Analytics service error." });
+      return;
+    }
+  }
   if (req.method === "GET" && req.url === "/api/status") {
     sendJson(res, 200, { ...liveStatus, lastUpdated: new Date().toISOString() });
     return;
@@ -290,6 +335,35 @@ async function handleApi(req, res) {
       sendJson(res, 200, { records, fetchedAt: new Date().toISOString() });
     } catch (error) {
       sendJson(res, 502, { error: "Unable to reach the flood alert service." });
+    }
+    return;
+  }
+
+  // Accept incident reports (stored to MongoDB when connected)
+  if (req.method === 'POST' && req.url === '/api/incidents') {
+    try {
+      const body = await parseBody(req);
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: 'MongoDB not connected' });
+        return;
+      }
+      const Incident = require('./models/Incident');
+      const inc = new Incident({
+        reporter: body.reporter || 'anonymous',
+        reporterRole: body.reporterRole || 'public',
+        type: body.type || 'flood',
+        severity: body.severity || 'Low',
+        value: body.value || 20,
+        areaDesc: body.areaDesc || body.location || '',
+        location: body.location || '',
+        lat: body.lat,
+        lng: body.lng,
+        note: body.note || ''
+      });
+      await inc.save();
+      sendJson(res, 201, { incidentId: inc._id.toString(), message: 'Incident recorded' });
+    } catch (error) {
+      sendJson(res, 500, { error: 'Failed to record incident' });
     }
     return;
   }

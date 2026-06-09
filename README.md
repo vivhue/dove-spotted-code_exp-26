@@ -179,3 +179,14 @@ nodemon backend/server.js
    to MongoDB.
 
 After that, `Send 6-digit code` sends OTPs to that user's linked Telegram chat.
+
+Environment variables for Risk & Analytics (optional for demo):
+
+```
+ONEMAP_TOKEN=your_onemap_token
+RAIN_API_KEY=your_rainfall_api_key
+PSI_API_KEY=your_psi_api_key
+HOSPITAL_API_KEY=your_hospital_api_key
+```
+
+If these are not provided the app runs in mock mode using sample datasets in `backend/APIs/`.
