@@ -1,11 +1,27 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const connectDB = require("./config/db");
+const User = require("./models/User");
+const { hashPassword, verifyPassword } = require("./utils/password");
+
+loadEnvFile(path.join(__dirname, "..", ".env"));
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
 const PUBLIC_DIR = path.join(__dirname, "..", "frontend", "public");
+const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_SECRET = process.env.OTP_SECRET || "quickaid-local-demo-otp-secret";
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
+const TELEGRAM_BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
+const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+const otpStore = new Map();
+const telegramLinkStore = new Map();
+let mongoConnected = false;
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -18,6 +34,23 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml; charset=utf-8",
   ".ico": "image/x-icon"
 };
+
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const equalsIndex = trimmed.indexOf("=");
+    if (equalsIndex === -1) continue;
+    const key = trimmed.slice(0, equalsIndex).trim();
+    let value = trimmed.slice(equalsIndex + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
 
 const liveStatus = {
   activeIncidents: 18,
@@ -97,12 +130,36 @@ function validEmail(email) {
   return typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function validateProfessionalLogin(body) {
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function hashOtp(email, otp) {
+  return crypto
+    .createHmac("sha256", OTP_SECRET)
+    .update(`${normalizeEmail(email)}:${otp}`)
+    .digest("hex");
+}
+
+function generateOtp() {
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function generateLinkToken() {
+  return crypto.randomBytes(18).toString("hex");
+}
+
+function validateProfessionalCredentials(body) {
   const errors = {};
   if (!validEmail(body.email)) errors.email = "Enter a valid authorised email.";
   if (typeof body.password !== "string" || body.password.length < 8) {
     errors.password = "Password must be at least 8 characters.";
   }
+  return errors;
+}
+
+function validateProfessionalLogin(body) {
+  const errors = validateProfessionalCredentials(body);
   if (typeof body.verification !== "string" || !/^\d{6}$/.test(body.verification)) {
     errors.verification = "Enter the 6-digit verification code.";
   }
@@ -119,9 +176,227 @@ function validatePublicLogin(body) {
   return errors;
 }
 
+async function findApprovedUser(email, role) {
+  if (!mongoConnected) return null;
+  const query = {
+    email: normalizeEmail(email),
+    status: "approved"
+  };
+  if (role) query.role = role;
+  return User.findOne(query);
+}
+
+async function validateUserPassword(user, password) {
+  if (!user) return false;
+  return verifyPassword(password, user.passwordHash);
+}
+
+function sendTelegramMessage(text, chatId = TELEGRAM_CHAT_ID) {
+  return new Promise((resolve, reject) => {
+    if (!TELEGRAM_BOT_TOKEN || !chatId) {
+      resolve({ delivered: false, reason: "telegram_not_configured" });
+      return;
+    }
+
+    const payload = JSON.stringify({
+      chat_id: chatId,
+      text
+    });
+
+    const req = https.request(
+      {
+        hostname: "api.telegram.org",
+        path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload)
+        },
+        timeout: 7000
+      },
+      (telegramRes) => {
+        let body = "";
+        telegramRes.on("data", (chunk) => {
+          body += chunk;
+        });
+        telegramRes.on("end", () => {
+          if (telegramRes.statusCode >= 200 && telegramRes.statusCode < 300) {
+            resolve({ delivered: true });
+            return;
+          }
+          reject(new Error(`Telegram returned ${telegramRes.statusCode}: ${body}`));
+        });
+      }
+    );
+
+    req.on("timeout", () => req.destroy(new Error("Telegram request timed out")));
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 async function handleApi(req, res) {
   if (req.method === "GET" && req.url === "/api/status") {
     sendJson(res, 200, { ...liveStatus, lastUpdated: new Date().toISOString() });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/auth/telegram/link-token") {
+    try {
+      const body = await parseBody(req);
+      const email = normalizeEmail(body.email);
+      const errors = validateProfessionalCredentials(body);
+      if (Object.keys(errors).length) {
+        sendJson(res, 400, { error: "Unable to create Telegram link.", fields: errors });
+        return;
+      }
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: "MongoDB is required to link Telegram accounts." });
+        return;
+      }
+      const user = await findApprovedUser(email, "professional");
+      if (!user) {
+        sendJson(res, 404, { error: "Approved professional user not found." });
+        return;
+      }
+      const passwordOk = await validateUserPassword(user, body.password);
+      if (!passwordOk) {
+        sendJson(res, 401, { error: "Invalid email or password." });
+        return;
+      }
+
+      const token = generateLinkToken();
+      telegramLinkStore.set(token, {
+        userId: String(user._id),
+        expiresAt: Date.now() + 10 * 60 * 1000
+      });
+
+      sendJson(res, 200, {
+        message: "Telegram link token created.",
+        token,
+        connectUrl: TELEGRAM_BOT_USERNAME
+          ? `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${token}`
+          : "",
+        note: "For local demo, store TELEGRAM_CHAT_ID in .env. Full Telegram linking needs a public webhook."
+      });
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/telegram/webhook") {
+    try {
+      if (TELEGRAM_WEBHOOK_SECRET) {
+        const receivedSecret = req.headers["x-telegram-bot-api-secret-token"];
+        if (receivedSecret !== TELEGRAM_WEBHOOK_SECRET) {
+          sendJson(res, 401, { error: "Invalid Telegram webhook secret." });
+          return;
+        }
+      }
+
+      const update = await parseBody(req);
+      const message = update.message;
+      const text = message?.text || "";
+      const chat = message?.chat;
+      const from = message?.from || {};
+      const match = text.match(/^\/start(?:\s+(.+))?$/);
+      if (!match || !match[1] || !chat?.id) {
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      const token = match[1].trim();
+      const link = telegramLinkStore.get(token);
+      if (!link || Date.now() > link.expiresAt) {
+        await sendTelegramMessage("QuickAid Telegram link expired. Please request a new link from the app.", chat.id);
+        telegramLinkStore.delete(token);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (!mongoConnected) {
+        await sendTelegramMessage("QuickAid cannot link Telegram right now because MongoDB is not connected.", chat.id);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      const user = await User.findById(link.userId);
+      if (!user) {
+        await sendTelegramMessage("QuickAid could not find the account for this link.", chat.id);
+        telegramLinkStore.delete(token);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      user.telegramChatId = String(chat.id);
+      user.telegramUsername = from.username || chat.username || "";
+      user.telegramLinkedAt = new Date();
+      user.mfaMethod = "telegram";
+      await user.save();
+      telegramLinkStore.delete(token);
+      await sendTelegramMessage(`Telegram connected for QuickAid account ${user.email}. You can now receive OTP codes here.`, chat.id);
+      sendJson(res, 200, { ok: true });
+    } catch (error) {
+      console.error("Telegram webhook failed:", error.message);
+      sendJson(res, 200, { ok: true });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/auth/professional/request-code") {
+    try {
+      const body = await parseBody(req);
+      const errors = validateProfessionalCredentials(body);
+      if (Object.keys(errors).length) {
+        sendJson(res, 400, { error: "Unable to send verification code.", fields: errors });
+        return;
+      }
+
+      const email = normalizeEmail(body.email);
+      const user = await findApprovedUser(email, "professional");
+      if (mongoConnected) {
+        if (!user) {
+          sendJson(res, 403, { error: "Professional account is not approved or does not exist." });
+          return;
+        }
+        const passwordOk = await validateUserPassword(user, body.password);
+        if (!passwordOk) {
+          sendJson(res, 401, { error: "Invalid email or password." });
+          return;
+        }
+      }
+
+      const otp = generateOtp();
+      const expiresAt = Date.now() + OTP_TTL_MS;
+      otpStore.set(email, {
+        hash: hashOtp(email, otp),
+        expiresAt,
+        attempts: 0
+      });
+
+      const message = `QuickAid verification code for ${email}: ${otp}. It expires in 5 minutes.`;
+      let delivery = { delivered: false, reason: "telegram_not_configured" };
+      try {
+        delivery = await sendTelegramMessage(message, user?.telegramChatId || TELEGRAM_CHAT_ID);
+      } catch (error) {
+        console.error("Telegram OTP delivery failed:", error.message);
+        delivery = { delivered: false, reason: "telegram_failed" };
+      }
+
+      console.log(`QuickAid OTP for ${email}: ${otp}`);
+      sendJson(res, 200, {
+        message: delivery.delivered
+          ? "Verification code sent to Telegram."
+          : "Verification code generated for local demo.",
+        expiresInSeconds: OTP_TTL_MS / 1000,
+        delivery: delivery.delivered ? "telegram" : "demo",
+        demoCode: delivery.delivered ? undefined : otp
+      });
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
     return;
   }
 
@@ -133,9 +408,56 @@ async function handleApi(req, res) {
         sendJson(res, 400, { error: "Unable to sign in.", fields: errors });
         return;
       }
+
+      const email = normalizeEmail(body.email);
+      const user = await findApprovedUser(email, "professional");
+      if (mongoConnected) {
+        if (!user) {
+          sendJson(res, 403, { error: "Professional account is not approved or does not exist." });
+          return;
+        }
+        const passwordOk = await validateUserPassword(user, body.password);
+        if (!passwordOk) {
+          sendJson(res, 401, { error: "Invalid email or password." });
+          return;
+        }
+      }
+
+      const record = otpStore.get(email);
+      if (!record) {
+        sendJson(res, 400, { error: "Request a verification code first." });
+        return;
+      }
+      if (Date.now() > record.expiresAt) {
+        otpStore.delete(email);
+        sendJson(res, 400, { error: "Verification code expired. Request a new code." });
+        return;
+      }
+      if (record.attempts >= OTP_MAX_ATTEMPTS) {
+        otpStore.delete(email);
+        sendJson(res, 429, { error: "Too many incorrect attempts. Request a new code." });
+        return;
+      }
+
+      const providedHash = hashOtp(email, body.verification);
+      const expected = Buffer.from(record.hash, "hex");
+      const provided = Buffer.from(providedHash, "hex");
+      if (!crypto.timingSafeEqual(expected, provided)) {
+        record.attempts += 1;
+        sendJson(res, 400, {
+          error: `Incorrect verification code. ${OTP_MAX_ATTEMPTS - record.attempts} attempts left.`
+        });
+        return;
+      }
+
+      otpStore.delete(email);
+      if (mongoConnected && user) {
+        user.lastLoginAt = new Date();
+        await user.save();
+      }
       sendJson(res, 200, {
         message: "Professional access approved.",
-        session: buildSession("professional", body.email),
+        session: buildSession("professional", email),
         redirectTo: "/#/dashboard"
       });
     } catch (error) {
@@ -152,6 +474,35 @@ async function handleApi(req, res) {
         sendJson(res, 400, { error: "Unable to sign in.", fields: errors });
         return;
       }
+
+      if (mongoConnected && body.provider !== "google") {
+        const email = normalizeEmail(body.email);
+        let user = await User.findOne({ email });
+        if (user && user.role !== "public") {
+          sendJson(res, 403, { error: "Use the professional login for this account." });
+          return;
+        }
+        if (user) {
+          const passwordOk = await validateUserPassword(user, body.password);
+          if (!passwordOk) {
+            sendJson(res, 401, { error: "Invalid email or password." });
+            return;
+          }
+          user.lastLoginAt = new Date();
+          await user.save();
+        } else {
+          user = await User.create({
+            name: email.split("@")[0],
+            email,
+            passwordHash: await hashPassword(body.password),
+            role: "public",
+            status: "approved",
+            mfaMethod: "none",
+            lastLoginAt: new Date()
+          });
+        }
+      }
+
       sendJson(res, 200, {
         message: body.provider === "google" ? "Google demo sign-in approved." : "Public access approved.",
         session: buildSession("public", body.email || "google-user@quickaid.local"),
@@ -203,6 +554,10 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`QuickAid running at http://${HOST}:${PORT}`);
+connectDB().then((connected) => {
+  mongoConnected = connected;
+}).finally(() => {
+  server.listen(PORT, HOST, () => {
+    console.log(`QuickAid running at http://${HOST}:${PORT}`);
+  });
 });

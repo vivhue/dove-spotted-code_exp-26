@@ -175,9 +175,9 @@ function renderRoleSelection() {
             ${roleCard({
               href: "#/login/public",
               iconName: "users",
-              title: "Public / Volunteer",
-              subtitle: "For community members",
-              items: ["Report incidents", "Volunteer support", "Receive alerts"],
+              title: "Public Access",
+              subtitle: "For residents and community members",
+              items: ["Report incidents", "Offer volunteer support", "Receive alerts"],
               action: "Continue as Public"
             })}
           </div>
@@ -220,6 +220,10 @@ function renderProfessionalLogin() {
             <label>Password
               <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required minlength="8" /></span>
             </label>
+            <div class="login-action-row">
+              <button class="code-button" type="button" data-connect-telegram>Connect Telegram</button>
+              <button class="code-button" type="button" data-request-code>Send 6-digit code</button>
+            </div>
             <label>Verification<input name="verification" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="Enter 6-digit code" required /></label>
             <p class="note">${icon("info")} Professional accounts require approval before activation. Contact your agency administrator for access.</p>
             <button class="form-button" type="submit">Sign In</button>
@@ -240,7 +244,7 @@ function renderPublicLogin() {
         <section class="login-panel" aria-labelledby="public-heading">
           <div class="auth-heading">
             <h1 id="public-heading">Public Login</h1>
-            <p>Sign in to report incidents and volunteer</p>
+            <p>Sign in to report incidents, receive alerts, or offer support</p>
           </div>
           <form class="login-form" data-role="public">
             <button class="google-button" type="button" data-google>${icon("google")} Continue with Google</button>
@@ -263,10 +267,26 @@ function renderPublicLogin() {
 function bindLoginForm() {
   const form = document.querySelector(".login-form");
   const google = document.querySelector("[data-google]");
+  const requestCode = document.querySelector("[data-request-code]");
+  const connectTelegram = document.querySelector("[data-connect-telegram]");
 
   if (google) {
     google.addEventListener("click", () => {
       submitLogin("public", { provider: "google" });
+    });
+  }
+
+  if (requestCode) {
+    requestCode.addEventListener("click", () => {
+      const data = Object.fromEntries(new FormData(form).entries());
+      requestProfessionalCode(data);
+    });
+  }
+
+  if (connectTelegram) {
+    connectTelegram.addEventListener("click", () => {
+      const data = Object.fromEntries(new FormData(form).entries());
+      connectProfessionalTelegram(data);
     });
   }
 
@@ -276,6 +296,81 @@ function bindLoginForm() {
     const data = Object.fromEntries(new FormData(form).entries());
     submitLogin(role, data);
   });
+}
+
+async function connectProfessionalTelegram(payload) {
+  const status = document.querySelector(".form-status");
+  const button = document.querySelector("[data-connect-telegram]");
+  status.textContent = "Preparing Telegram connection...";
+  status.className = "form-status";
+  button.disabled = true;
+
+  try {
+    const response = await fetch("/api/auth/telegram/link-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: payload.email,
+        password: payload.password
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      status.textContent = formatAuthError(result, "Unable to connect Telegram.");
+      status.classList.add("error");
+      return;
+    }
+    if (!result.connectUrl) {
+      status.textContent = "Telegram bot username is missing. Add TELEGRAM_BOT_USERNAME to .env.";
+      status.classList.add("error");
+      return;
+    }
+    status.textContent = "Opening Telegram. Tap Start in the bot to finish linking.";
+    status.classList.add("success");
+    window.open(result.connectUrl, "_blank", "noopener");
+  } catch (error) {
+    status.textContent = "Server unavailable. Check that QuickAid is running.";
+    status.classList.add("error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function requestProfessionalCode(payload) {
+  const status = document.querySelector(".form-status");
+  const button = document.querySelector("[data-request-code]");
+  status.textContent = "Generating verification code...";
+  status.className = "form-status";
+  button.disabled = true;
+
+  try {
+    const response = await fetch("/api/auth/professional/request-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: payload.email,
+        password: payload.password
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      status.textContent = formatAuthError(result, "Unable to generate code.");
+      status.classList.add("error");
+      return;
+    }
+
+    if (result.demoCode) {
+      status.textContent = `Demo code: ${result.demoCode}. It expires in 5 minutes.`;
+    } else {
+      status.textContent = result.message;
+    }
+    status.classList.add("success");
+  } catch (error) {
+    status.textContent = "Server unavailable. Check that QuickAid is running.";
+    status.classList.add("error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function submitLogin(role, payload) {
@@ -292,7 +387,7 @@ async function submitLogin(role, payload) {
     });
     const result = await response.json();
     if (!response.ok) {
-      status.textContent = result.error || "Unable to sign in.";
+      status.textContent = formatAuthError(result, "Unable to sign in.");
       status.classList.add("error");
       return;
     }
@@ -310,22 +405,93 @@ async function submitLogin(role, payload) {
 
 async function renderDashboard() {
   const session = JSON.parse(localStorage.getItem("quickaid-session") || "null");
+  const isProfessional = session?.role === "professional";
   app.innerHTML = `
     <div class="page dashboard-page">
-      ${header({ backHref: "#/login" })}
-      <main class="dashboard-shell">
-        <section class="dashboard-title">
+      <main class="ops-dashboard">
+        <header class="ops-header">
           <div>
-            <p class="eyebrow">Live dashboard</p>
-            <h1>${session ? session.role === "professional" ? "Professional Operations View" : "Public Response View" : "Emergency Status"}</h1>
+            <div class="ops-title-row">
+              <span class="hamburger-lines" aria-hidden="true"></span>
+              <h1>AI-assisted national resource</h1>
+            </div>
+            <p>Real-time emergency overview</p>
           </div>
-          <button class="secondary-button compact" data-signout>Sign Out</button>
+          <div class="ops-actions">
+            <span class="ops-live">${icon("activity")} Live</span>
+            <span class="updated-pill">Last Updated : 5:00 PM</span>
+            <button class="secondary-button compact" data-signout>Sign Out</button>
+          </div>
+        </header>
+
+        <section class="ops-alert">
+          ${icon("alert")}
+          <strong>Critical flooding detected in Jurong West. National University Hospital occupancy is high. There is an accident at TPE, currently SCDF is there rescuing the victim.</strong>
         </section>
-        <section class="metric-grid" aria-label="Live emergency metrics"></section>
-        <section class="incident-section">
-          <h2>Active Incidents</h2>
-          <div class="incident-list"></div>
+
+        <section class="ops-metrics" aria-label="Live emergency metrics">
+          ${opsMetric("Active Accidents", "5", "danger")}
+          ${opsMetric("Emergency Alerts", "3", "danger")}
+          ${opsMetric("SCDF Volunteers Available", "18", "success")}
+          ${opsMetric("Hospital Vacancy", "82%", "warning")}
         </section>
+
+        <section class="ops-grid">
+          <div class="ops-main-column">
+            <section class="live-map-card">
+              <h2>Singapore Live Map</h2>
+              <div class="singapore-map-wrap">
+                <div id="onemap-dashboard-map" class="onemap-dashboard-map">
+                  <span>Loading OneMap...</span>
+                </div>
+                <div class="map-legend">
+                  <span class="incident-map-marker fire legend-marker"><span></span></span> Fire
+                  <span class="incident-map-marker flood legend-marker"><span></span></span> Flood
+                </div>
+              </div>
+            </section>
+
+            <section class="live-activity">
+              <h2>Live Activity</h2>
+              <ul>
+                <li><strong>12:42</strong> SCDF deployed to Jurong West</li>
+                <li><strong>12:47</strong> PIE congestion elevated</li>
+                <li><strong>12:51</strong> Shelter activation recommended</li>
+                <li><strong>12:53</strong> NUH occupancy exceeded threshold</li>
+              </ul>
+            </section>
+          </div>
+
+          <aside class="ops-side-column">
+            <section class="ops-panel threat-panel">
+              <h2>Threat Level:</h2>
+              <strong class="critical-value">HIGH</strong>
+            </section>
+            <section class="ops-panel">
+              <h2>Escalation Forecast:</h2>
+              <p><strong>PIE congestion risk↑</strong><br /><strong>NUH overloaded</strong><br /><span>Flood spreading to Clementi</span></p>
+            </section>
+            <section class="ops-panel">
+              <h2>Response Queue:</h2>
+              <ul>
+                <li><strong>Redirect PIE traffic</strong> to AYE</li>
+                <li><strong>Deploy SCDF unit</strong> to Jurong West</li>
+              </ul>
+            </section>
+            <section class="ops-panel route-panel">
+              <h2>Dynamic Evacuation Route Updated</h2>
+              <p><strong>AYE rerouted</strong> toward Jurong East CC</p>
+              <strong class="eta-value">ETA: 18 min</strong>
+            </section>
+          </aside>
+        </section>
+
+        <footer class="connected-feeds">
+          <strong>Connected Feeds:</strong>
+          <span>SCDF | NEA | PUB | MOH | LTA</span>
+        </footer>
+
+        ${!isProfessional ? `<p class="public-dashboard-note">Public view: operational actions are shown for transparency. Professional sign-in unlocks command actions.</p>` : ""}
       </main>
     </div>
   `;
@@ -335,28 +501,14 @@ async function renderDashboard() {
     window.location.hash = "#/";
   });
 
-  try {
-    const response = await fetch("/api/status");
-    const status = await response.json();
-    document.querySelector(".metric-grid").innerHTML = `
-      ${metric("Active Incidents", status.activeIncidents)}
-      ${metric("Available Responders", status.availableResponders)}
-      ${metric("Shelters Online", status.sheltersOnline)}
-      ${metric("Avg Dispatch", `${status.avgDispatchMinutes}m`)}
-    `;
-    document.querySelector(".incident-list").innerHTML = status.alerts.map((alert) => `
-      <article class="incident-card">
-        <div>
-          <strong>${alert.id}</strong>
-          <span>${alert.type} · ${alert.location}</span>
-        </div>
-        <p>${alert.status}</p>
-        <mark>${alert.priority}</mark>
-      </article>
-    `).join("");
-  } catch (error) {
-    document.querySelector(".incident-section").innerHTML = "<p class='form-status error'>Unable to load live status.</p>";
+  initOneMapDashboard();
+}
+
+function formatAuthError(result, fallback) {
+  if (result.fields) {
+    return Object.values(result.fields).join(" ");
   }
+  return result.error || fallback;
 }
 
 function metric(label, value) {
@@ -366,6 +518,86 @@ function metric(label, value) {
       <strong>${value}</strong>
     </article>
   `;
+}
+
+function opsMetric(label, value, tone) {
+  return `
+    <article class="ops-metric">
+      <span>${label}</span>
+      <strong class="${tone}">${value}</strong>
+    </article>
+  `;
+}
+
+async function initOneMapDashboard() {
+  const mapEl = document.querySelector("#onemap-dashboard-map");
+  if (!mapEl) return;
+
+  try {
+    await loadStylesheet("https://www.onemap.gov.sg/web-assets/libs/leaflet/leaflet.css");
+    await loadScript("https://www.onemap.gov.sg/web-assets/libs/leaflet/onemap-leaflet.js");
+    await loadScript("https://www.onemap.gov.sg/web-assets/libs/leaflet/leaflet-tilejson.js");
+
+    const tileJsonResponse = await fetch("https://www.onemap.gov.sg/maps/json/raster/tilejson/2.2.0/Default.json");
+    const tileJson = await tileJsonResponse.json();
+    mapEl.innerHTML = "";
+
+    const sw = L.latLng(1.144, 103.535);
+    const ne = L.latLng(1.494, 104.502);
+    const bounds = L.latLngBounds(sw, ne);
+    const map = L.TileJSON.createMap("onemap-dashboard-map", tileJson);
+    map.setMaxBounds(bounds);
+    map.setView(L.latLng(1.345, 103.705), 11);
+    map.attributionControl.setPrefix('<img src="https://www.onemap.gov.sg/web-assets/images/logo/om_logo.png" style="height:20px;width:20px;"/>&nbsp;<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a>&nbsp;&copy;&nbsp;contributors&nbsp;&#124;&nbsp;<a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority</a>');
+
+    addIncidentMarker(map, [1.344, 103.704], "flood", "Flood - Jurong West");
+    addIncidentMarker(map, [1.333, 103.742], "flood", "Flood - Jurong East");
+    addIncidentMarker(map, [1.305, 103.833], "fire", "Fire - TPE response");
+
+    window.setTimeout(() => map.invalidateSize(), 100);
+    window.addEventListener("resize", () => map.invalidateSize());
+  } catch (error) {
+    mapEl.innerHTML = "<span>Unable to load OneMap. Check internet connection.</span>";
+  }
+}
+
+function addIncidentMarker(map, latLng, type, label) {
+  const marker = L.divIcon({
+    className: `incident-map-marker ${type}`,
+    html: `<span title="${label}"></span>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 28]
+  });
+  L.marker(latLng, { icon: marker }).addTo(map).bindPopup(label);
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+function loadStylesheet(href) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`link[href="${href}"]`)) {
+      resolve();
+      return;
+    }
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.onload = resolve;
+    link.onerror = reject;
+    document.head.appendChild(link);
+  });
 }
 
 function renderRoute() {
