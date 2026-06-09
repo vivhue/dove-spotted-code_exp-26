@@ -218,6 +218,30 @@ function validatePublicLogin(body) {
   return errors;
 }
 
+function validateVolunteerSignup(body) {
+  const errors = {};
+  const name = String(body.name || "").trim();
+  const phone = String(body.phone || "").replace(/\s+/g, "");
+  const postalCode = String(body.postalCode || "").trim();
+  const allowedAvailability = ["weekdays", "evenings", "weekends", "emergency"];
+
+  if (name.length < 2 || name.length > 80) errors.name = "Enter your full name.";
+  if (!validEmail(body.email)) errors.email = "Enter a valid email.";
+  if (typeof body.password !== "string" || body.password.length < 8) {
+    errors.password = "Password must be at least 8 characters.";
+  }
+  if (body.password !== body.confirmPassword) errors.confirmPassword = "Passwords do not match.";
+  if (!/^[689]\d{7}$/.test(phone)) errors.phone = "Enter a valid 8-digit Singapore phone number.";
+  if (postalCode && !/^\d{6}$/.test(postalCode)) errors.postalCode = "Postal code must contain 6 digits.";
+  if (!allowedAvailability.includes(body.availability)) {
+    errors.availability = "Choose when you are generally available.";
+  }
+  if (body.acceptTerms !== true && body.acceptTerms !== "on") {
+    errors.acceptTerms = "You must confirm the volunteer declaration.";
+  }
+  return errors;
+}
+
 async function findApprovedUser(email, role) {
   if (!mongoConnected) return null;
   const query = {
@@ -233,7 +257,7 @@ async function validateUserPassword(user, password) {
   return verifyPassword(password, user.passwordHash);
 }
 
-function sendTelegramMessage(text, chatId = TELEGRAM_CHAT_ID) {
+function sendTelegramMessage(text, chatId) {
   return new Promise((resolve, reject) => {
     if (!TELEGRAM_BOT_TOKEN || !chatId) {
       resolve({ delivered: false, reason: "telegram_not_configured" });
@@ -348,7 +372,7 @@ async function handleApi(req, res) {
         connectUrl: TELEGRAM_BOT_USERNAME
           ? `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${token}`
           : "",
-        note: "For local demo, store TELEGRAM_CHAT_ID in .env. Full Telegram linking needs a public webhook."
+        note: "Open the bot and tap Start to link this account to that Telegram chat."
       });
     } catch (error) {
       sendJson(res, 400, { error: "Invalid request payload." });
@@ -436,6 +460,12 @@ async function handleApi(req, res) {
           sendJson(res, 401, { error: "Invalid email or password." });
           return;
         }
+        if (!user.telegramChatId) {
+          sendJson(res, 409, {
+            error: "Telegram is not linked to this account. Click Connect Telegram and tap Start in the bot first."
+          });
+          return;
+        }
       }
 
       const otp = generateOtp();
@@ -449,10 +479,19 @@ async function handleApi(req, res) {
       const message = `QuickAid verification code for ${email}: ${otp}. It expires in 5 minutes.`;
       let delivery = { delivered: false, reason: "telegram_not_configured" };
       try {
-        delivery = await sendTelegramMessage(message, user?.telegramChatId || TELEGRAM_CHAT_ID);
+        const destinationChatId = mongoConnected ? user.telegramChatId : TELEGRAM_CHAT_ID;
+        delivery = await sendTelegramMessage(message, destinationChatId);
       } catch (error) {
         console.error("Telegram OTP delivery failed:", error.message);
         delivery = { delivered: false, reason: "telegram_failed" };
+      }
+
+      if (mongoConnected && !delivery.delivered) {
+        otpStore.delete(email);
+        sendJson(res, 502, {
+          error: "Telegram could not deliver the code. Reconnect Telegram and try again."
+        });
+        return;
       }
 
       console.log(`QuickAid OTP for ${email}: ${otp}`);
@@ -547,30 +586,22 @@ async function handleApi(req, res) {
 
       if (mongoConnected && body.provider !== "google") {
         const email = normalizeEmail(body.email);
-        let user = await User.findOne({ email });
+        const user = await User.findOne({ email });
         if (user && user.role !== "public") {
           sendJson(res, 403, { error: "Use the professional login for this account." });
           return;
         }
-        if (user) {
-          const passwordOk = await validateUserPassword(user, body.password);
-          if (!passwordOk) {
-            sendJson(res, 401, { error: "Invalid email or password." });
-            return;
-          }
-          user.lastLoginAt = new Date();
-          await user.save();
-        } else {
-          user = await User.create({
-            name: email.split("@")[0],
-            email,
-            passwordHash: await hashPassword(body.password),
-            role: "public",
-            status: "approved",
-            mfaMethod: "none",
-            lastLoginAt: new Date()
-          });
+        if (!user) {
+          sendJson(res, 404, { error: "Account not found. Create a volunteer account first." });
+          return;
         }
+        const passwordOk = await validateUserPassword(user, body.password);
+        if (!passwordOk) {
+          sendJson(res, 401, { error: "Invalid email or password." });
+          return;
+        }
+        user.lastLoginAt = new Date();
+        await user.save();
       }
 
       sendJson(res, 200, {
@@ -580,6 +611,66 @@ async function handleApi(req, res) {
       });
     } catch (error) {
       sendJson(res, 400, { error: "Invalid request payload." });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/auth/volunteer/signup") {
+    try {
+      const body = await parseBody(req);
+      const errors = validateVolunteerSignup(body);
+      if (Object.keys(errors).length) {
+        sendJson(res, 400, { error: "Unable to create volunteer account.", fields: errors });
+        return;
+      }
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: "MongoDB must be connected before creating an account." });
+        return;
+      }
+
+      const email = normalizeEmail(body.email);
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        sendJson(res, 409, { error: "An account with this email already exists. Sign in instead." });
+        return;
+      }
+
+      const skills = Array.isArray(body.skills)
+        ? body.skills
+        : String(body.skills || "").split(",");
+      const volunteerSkills = skills
+        .map((skill) => String(skill).trim())
+        .filter(Boolean)
+        .slice(0, 8);
+
+      await User.create({
+        name: String(body.name).trim(),
+        email,
+        passwordHash: await hashPassword(body.password),
+        role: "public",
+        status: "approved",
+        isVolunteer: true,
+        phone: String(body.phone).replace(/\s+/g, ""),
+        postalCode: String(body.postalCode || "").trim(),
+        volunteerSkills,
+        volunteerAvailability: body.availability,
+        mfaMethod: "none",
+        approvedAt: new Date(),
+        lastLoginAt: new Date()
+      });
+
+      sendJson(res, 201, {
+        message: "Volunteer account created successfully.",
+        session: buildSession("public", email),
+        redirectTo: "/#/dashboard"
+      });
+    } catch (error) {
+      if (error?.code === 11000) {
+        sendJson(res, 409, { error: "An account with this email already exists." });
+        return;
+      }
+      console.error("Volunteer signup failed:", error.message);
+      sendJson(res, 500, { error: "Unable to create the account right now." });
     }
     return;
   }

@@ -6,6 +6,7 @@ const routes = {
   "#/login": renderRoleSelection,
   "#/login/professional": renderProfessionalLogin,
   "#/login/public": renderPublicLogin,
+  "#/signup/volunteer": renderVolunteerSignup,
   "#/dashboard": renderDashboard,
   "#/flood-map": renderFloodMap
 };
@@ -255,7 +256,7 @@ function renderPublicLogin() {
               <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" minlength="6" /></span>
             </label>
             <button class="form-button" type="submit">Sign In With Email</button>
-            <p class="signup-line">Don't have an account? <a href="#/login/public">Sign up</a></p>
+            <p class="signup-line">Want to help during emergencies? <a href="#/signup/volunteer">Create a volunteer account</a></p>
             <p class="form-status" role="status"></p>
           </form>
         </section>
@@ -263,6 +264,109 @@ function renderPublicLogin() {
     </div>
   `;
   bindLoginForm();
+}
+
+function renderVolunteerSignup() {
+  app.innerHTML = `
+    <div class="page auth-page">
+      ${header({ backHref: "#/login/public" })}
+      <main class="center-stage signup-stage">
+        <section class="login-panel volunteer-signup-panel" aria-labelledby="volunteer-heading">
+          <div class="auth-heading">
+            <p class="eyebrow">Community response network</p>
+            <h1 id="volunteer-heading">Volunteer Sign Up</h1>
+            <p>Create an account to offer support and receive local emergency alerts</p>
+          </div>
+          <form class="login-form volunteer-signup-form" data-volunteer-signup>
+            <div class="form-grid">
+              <label>Full name
+                <input name="name" type="text" placeholder="Your full name" autocomplete="name" required maxlength="80" />
+              </label>
+              <label>Email
+                <input name="email" type="email" placeholder="name@example.com" autocomplete="email" required />
+              </label>
+              <label>Mobile number
+                <input name="phone" type="tel" inputmode="tel" placeholder="8123 4567" autocomplete="tel" required />
+              </label>
+              <label>Postal code
+                <input name="postalCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="e.g. 600123" autocomplete="postal-code" />
+              </label>
+              <label>Password
+                <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8" /></span>
+              </label>
+              <label>Confirm password
+                <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password" required minlength="8" /></span>
+              </label>
+            </div>
+            <label>Availability
+              <select name="availability" required>
+                <option value="">Select availability</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="evenings">Weekday evenings</option>
+                <option value="weekends">Weekends</option>
+                <option value="emergency">On-call during emergencies</option>
+              </select>
+            </label>
+            <label>Useful skills <span class="optional-label">Optional, separated by commas</span>
+              <input name="skills" type="text" placeholder="First aid, driving, translation" maxlength="180" />
+            </label>
+            <label class="declaration-check">
+              <input name="acceptTerms" type="checkbox" required />
+              <span>I confirm that these details are accurate and understand that deployment instructions must come from authorised coordinators.</span>
+            </label>
+            <button class="form-button" type="submit">Create Volunteer Account</button>
+            <p class="signup-line">Already registered? <a href="#/login/public">Sign in</a></p>
+            <p class="form-status" role="status"></p>
+          </form>
+        </section>
+      </main>
+    </div>
+  `;
+
+  document.querySelector("[data-volunteer-signup]").addEventListener("submit", submitVolunteerSignup);
+}
+
+async function submitVolunteerSignup(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = form.querySelector(".form-status");
+  const button = form.querySelector('button[type="submit"]');
+  const data = Object.fromEntries(new FormData(form).entries());
+  data.acceptTerms = form.elements.acceptTerms.checked;
+  data.skills = String(data.skills || "")
+    .split(",")
+    .map((skill) => skill.trim())
+    .filter(Boolean);
+
+  status.textContent = "Creating your volunteer account...";
+  status.className = "form-status";
+  button.disabled = true;
+
+  try {
+    const response = await fetch("/api/auth/volunteer/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      status.textContent = formatAuthError(result, "Unable to create your account.");
+      status.classList.add("error");
+      return;
+    }
+
+    localStorage.setItem("quickaid-session", JSON.stringify(result.session));
+    status.textContent = result.message;
+    status.classList.add("success");
+    window.setTimeout(() => {
+      window.location.hash = "#/dashboard";
+    }, 650);
+  } catch (error) {
+    status.textContent = "Server unavailable. Check that QuickAid is running.";
+    status.classList.add("error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function bindLoginForm() {

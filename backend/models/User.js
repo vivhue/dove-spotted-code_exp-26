@@ -39,6 +39,29 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: ""
     },
+    isVolunteer: {
+      type: Boolean,
+      default: false
+    },
+    phone: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    postalCode: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    volunteerSkills: {
+      type: [String],
+      default: []
+    },
+    volunteerAvailability: {
+      type: String,
+      enum: ["", "weekdays", "evenings", "weekends", "emergency"],
+      default: ""
+    },
     telegramChatId: {
       type: String,
       trim: true,

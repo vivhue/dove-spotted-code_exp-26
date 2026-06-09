@@ -684,7 +684,8 @@ p {
   font-weight: 740;
 }
 
-.login-form input {
+.login-form input,
+.login-form select {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--line);
@@ -694,9 +695,15 @@ p {
   color: var(--ink);
 }
 
-.login-form input:focus {
+.login-form input:focus,
+.login-form select:focus {
   border-color: var(--teal);
   outline: 3px solid rgba(15, 118, 110, 0.15);
+}
+
+.login-form select {
+  padding: 0 40px 0 14px;
+  color: var(--ink);
 }
 
 .input-with-icon {
@@ -782,6 +789,50 @@ p {
 
 .signup-line a {
   font-weight: 800;
+}
+
+.signup-stage {
+  padding-block: clamp(30px, 5vw, 70px);
+}
+
+.volunteer-signup-panel {
+  width: min(100%, 900px);
+}
+
+.volunteer-signup-form {
+  max-width: 760px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.optional-label {
+  color: #7b817d;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.login-form .declaration-check {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+  gap: 10px;
+  color: #444a46;
+  line-height: 1.4;
+}
+
+.login-form .declaration-check input {
+  width: 18px;
+  min-height: 18px;
+  margin-top: 1px;
+  accent-color: var(--teal);
+}
+
+.volunteer-signup-form .form-button {
+  width: min(100%, 320px);
 }
 
 .form-status {
@@ -1579,6 +1630,10 @@ p {
   }
 
   .login-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid {
     grid-template-columns: 1fr;
   }
 

@@ -12,7 +12,7 @@ npm install
 Run during development with automatic backend restarts:
 
 ```bash
-npm run dev
+nodemon backend/server.js
 ```
 
 Then open:
@@ -84,7 +84,7 @@ MongoDB setup:
 Add your Atlas connection string to `.env`:
 
 ```text
-MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/wad_dev?retryWrites=true&w=majority
+MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/quickaid?retryWrites=true&w=majority
 ```
 
 This project connects from `backend/server.js` through `backend/config/db.js`.
@@ -96,18 +96,16 @@ Create demo users:
 npm run seed
 ```
 
-This creates or updates:
+This creates or updates the main professional account, four professional team
+accounts, and one public account. Running it again updates the same email
+addresses instead of creating duplicates.
 
-```text
-Professional: agency@example.com / password123
-Public: public@example.com / secret123
-```
-
-To create your own test professional user, add these to `.env`:
+Configure the passwords in `.env`:
 
 ```text
 SEED_PRO_EMAIL=aish@gmail.com
 SEED_PRO_PASSWORD=your_test_password
+SEED_TEAM_PASSWORD=your_shared_demo_password
 SEED_PRO_NAME=Aishani
 SEED_PRO_AGENCY=SCDF
 SEED_PRO_ROLE_TITLE=Emergency Operations Officer
@@ -122,9 +120,40 @@ npm run seed
 Both passwords are stored as hashes in MongoDB. Professional users must have
 `role: "professional"` and `status: "approved"` before they can request an OTP.
 
-For this prototype, public email login creates a public user automatically if
-the email is new. Professional accounts should be created by an admin or seeded
-as approved users.
+Public email login requires an existing account. New volunteers register at
+`http://127.0.0.1:3000/#/signup/volunteer`.
+
+Team MongoDB setup:
+
+The `.env` file is ignored by Git because it contains private credentials.
+Every collaborator must create their own `.env` by using `.env.example` as a
+template.
+
+For each collaborator:
+
+1. In MongoDB Atlas, open `Database Access`.
+2. Create a separate database user for that teammate. Give it read/write
+   access to the QuickAid database.
+3. Open `Network Access`.
+4. Add that teammate's current IP address.
+5. Give the teammate their own MongoDB URI privately. Do not commit it or send
+   it in a public chat.
+6. They put their URI into their local `.env` as `MONGO_URI`. Keep `/quickaid`
+   before the `?` so everyone uses the same database.
+7. They run:
+
+```bash
+npm install
+npm run db:check
+nodemon backend/server.js
+```
+
+`npm run db:check` confirms the database connection and prints the number of
+professional and public users without displaying passwords.
+
+For a short classroom demo, Atlas can temporarily allow `0.0.0.0/0` under
+Network Access so connections work from any IP. This is less secure: use
+strong, limited database credentials and remove that rule after the demo.
 
 Password security:
 
@@ -134,12 +163,13 @@ Password security:
 
 Telegram OTP:
 
-- The working prototype sends OTPs to `TELEGRAM_CHAT_ID` in `.env`.
-- Seeded professional users also store that chat id in MongoDB as
-  `telegramChatId`.
-- In a full production flow, users should not manually find their chat id.
-  They would click a `Connect Telegram` link, start the bot, and the backend
-  would save their Telegram `chat.id` to their user record.
+- Each professional account must link its own Telegram chat before requesting
+  an OTP.
+- The user clicks `Connect Telegram`, starts the bot, and the backend saves
+  that user's Telegram `chat.id` to only their MongoDB record.
+- `TELEGRAM_CHAT_ID` is retained only as a no-database local demo fallback. It
+  is never used as a fallback for MongoDB professional accounts.
+- Seeded team accounts start with no Telegram chat linked.
 - Full automatic linking requires a public Telegram webhook URL. Localhost
   cannot receive Telegram webhook calls directly.
 

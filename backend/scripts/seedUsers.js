@@ -26,7 +26,7 @@ function loadEnvFile(filePath) {
 
 async function upsertUser(user) {
   const passwordHash = await hashPassword(user.password);
-  await User.findOneAndUpdate(
+  return User.findOneAndUpdate(
     { email: user.email.toLowerCase() },
     {
       $set: {
@@ -37,9 +37,12 @@ async function upsertUser(user) {
         status: user.status,
         agency: user.agency || "",
         roleTitle: user.roleTitle || "",
-        telegramChatId: user.telegramChatId || "",
-        mfaMethod: user.mfaMethod || "demo",
         approvedAt: user.status === "approved" ? new Date() : undefined
+      },
+      $setOnInsert: {
+        telegramChatId: "",
+        telegramUsername: "",
+        mfaMethod: "none"
       }
     },
     { upsert: true, returnDocument: "after" }
@@ -58,18 +61,77 @@ async function seed() {
   const publicEmail = process.env.SEED_PUBLIC_EMAIL || "public@example.com";
   const publicPassword = process.env.SEED_PUBLIC_PASSWORD || "secret123";
   const publicName = process.env.SEED_PUBLIC_NAME || "Public Demo User";
+  const teamPassword = process.env.SEED_TEAM_PASSWORD || "QuickAidDemo2026!";
+  const legacySharedChatId = process.env.TELEGRAM_CHAT_ID || "";
 
-  await upsertUser({
-    name: professionalName,
-    email: professionalEmail,
-    password: professionalPassword,
-    role: "professional",
-    status: "approved",
-    agency: process.env.SEED_PRO_AGENCY || "SCDF",
-    roleTitle: process.env.SEED_PRO_ROLE_TITLE || "Emergency Operations Officer",
-    telegramChatId: process.env.TELEGRAM_CHAT_ID || "",
-    mfaMethod: process.env.TELEGRAM_CHAT_ID ? "telegram" : "demo"
-  });
+  const professionalUsers = [
+    {
+      name: professionalName,
+      email: professionalEmail,
+      password: professionalPassword,
+      agency: process.env.SEED_PRO_AGENCY || "SCDF",
+      roleTitle: process.env.SEED_PRO_ROLE_TITLE || "Emergency Operations Officer"
+    },
+    {
+      name: "Daniel Lim",
+      email: "daniel.lim@scdf.quickaid.test",
+      password: teamPassword,
+      agency: "SCDF",
+      roleTitle: "Response Team Commander"
+    },
+    {
+      name: "Mei Lin Tan",
+      email: "meilin.tan@moh.quickaid.test",
+      password: teamPassword,
+      agency: "MOH",
+      roleTitle: "Hospital Capacity Coordinator"
+    },
+    {
+      name: "Faris Rahman",
+      email: "faris.rahman@spf.quickaid.test",
+      password: teamPassword,
+      agency: "SPF",
+      roleTitle: "Incident Liaison Officer"
+    },
+    {
+      name: "Cheryl Goh",
+      email: "cheryl.goh@lta.quickaid.test",
+      password: teamPassword,
+      agency: "LTA",
+      roleTitle: "Traffic Operations Controller"
+    }
+  ];
+
+  for (const professional of professionalUsers) {
+    await upsertUser({
+      ...professional,
+      role: "professional",
+      status: "approved"
+    });
+  }
+
+  if (legacySharedChatId) {
+    const teamEmails = professionalUsers
+      .slice(1)
+      .map((professional) => professional.email.toLowerCase());
+    const cleanup = await User.updateMany(
+      {
+        email: { $in: teamEmails },
+        telegramChatId: legacySharedChatId
+      },
+      {
+        $set: {
+          telegramChatId: "",
+          telegramUsername: "",
+          mfaMethod: "none"
+        },
+        $unset: {
+          telegramLinkedAt: ""
+        }
+      }
+    );
+    console.log(`Removed the shared Telegram chat from ${cleanup.modifiedCount} team account(s).`);
+  }
 
   await upsertUser({
     name: publicName,
@@ -80,7 +142,11 @@ async function seed() {
   });
 
   console.log("Seeded demo users:");
-  console.log(`Professional: ${professionalEmail} / ${professionalPassword}`);
+  professionalUsers.forEach((professional) => {
+    console.log(
+      `Professional (${professional.agency}): ${professional.email} / ${professional.password}`
+    );
+  });
   console.log(`Public: ${publicEmail} / ${publicPassword}`);
 }
 
