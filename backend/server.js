@@ -23,6 +23,48 @@ const otpStore = new Map();
 const telegramLinkStore = new Map();
 let mongoConnected = false;
 
+const ONEMAP_TOKEN = process.env.ONEMAP_TOKEN || "";
+
+const FLOOD_ALERTS_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather/flood-alerts";
+const ONEMAP_REVGEOCODE_URL = "https://www.onemap.gov.sg/api/public/revgeocode";
+
+const cache = new Map();
+
+async function cached(key, ttlMs, fetcher) {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.time < ttlMs) return hit.value;
+  const value = await fetcher();
+  cache.set(key, { value, time: Date.now() });
+  return value;
+}
+
+async function fetchFloodAlerts() {
+  const response = await fetch(FLOOD_ALERTS_URL);
+  if (!response.ok) throw new Error(`Flood alert upstream error: ${response.status}`);
+  const payload = await response.json();
+  return payload.data?.records || [];
+}
+
+async function fetchNearestAddress(lat, lng) {
+  const url = `${ONEMAP_REVGEOCODE_URL}?location=${lat},${lng}&buffer=50&addressType=All&otherFeatures=N`;
+  if (!ONEMAP_TOKEN) {
+    throw new Error("ONEMAP_TOKEN is not configured");
+  }
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${ONEMAP_TOKEN}` }
+  });
+  if (!response.ok) throw new Error(`OneMap upstream error: ${response.status}`);
+  const payload = await response.json();
+  const result = payload.GeocodeInfo?.[0];
+  if (!result) return null;
+  return {
+    building: result.BUILDINGNAME,
+    block: result.BLOCK,
+    road: result.ROAD,
+    postalCode: result.POSTALCODE
+  };
+}
+
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -239,6 +281,34 @@ function sendTelegramMessage(text, chatId = TELEGRAM_CHAT_ID) {
 async function handleApi(req, res) {
   if (req.method === "GET" && req.url === "/api/status") {
     sendJson(res, 200, { ...liveStatus, lastUpdated: new Date().toISOString() });
+    return;
+  }
+
+  if (req.method === "GET" && req.url.startsWith("/api/flood-alerts")) {
+    try {
+      const records = await cached("flood-alerts", 60_000, fetchFloodAlerts);
+      sendJson(res, 200, { records, fetchedAt: new Date().toISOString() });
+    } catch (error) {
+      sendJson(res, 502, { error: "Unable to reach the flood alert service." });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && req.url.startsWith("/api/onemap/revgeocode")) {
+    const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
+    const lat = Number(params.get("lat"));
+    const lng = Number(params.get("lng"));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      sendJson(res, 400, { error: "lat and lng query parameters are required." });
+      return;
+    }
+    try {
+      const key = `revgeocode:${lat.toFixed(4)},${lng.toFixed(4)}`;
+      const address = await cached(key, 30 * 60_000, () => fetchNearestAddress(lat, lng));
+      sendJson(res, 200, { address });
+    } catch (error) {
+      sendJson(res, 502, { error: "Unable to reach the OneMap service." });
+    }
     return;
   }
 

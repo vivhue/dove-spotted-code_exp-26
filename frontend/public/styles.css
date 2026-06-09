@@ -1593,3 +1593,203 @@ p {
     padding-left: 18px;
   }
 }
+
+/* Flood map */
+
+.dashboard-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-title-actions .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flood-map-shell {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 44px 20px 80px;
+}
+
+.map-updated {
+  color: var(--muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.flood-map-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+.flood-map-canvas {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+#flood-map {
+  height: 620px;
+  width: 100%;
+}
+
+.flood-severity-legend {
+  position: absolute;
+  z-index: 500;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  gap: 14px;
+  margin: 0;
+  padding: 10px 16px;
+  list-style: none;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgba(18, 19, 18, 0.12);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.flood-severity-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flood-severity-legend i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.flood-alert-rail {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 8px 20px rgba(18, 19, 18, 0.05);
+  padding: 20px;
+  max-height: 620px;
+  overflow-y: auto;
+}
+
+.flood-alert-rail h2 {
+  margin-top: 0;
+  font-size: 20px;
+}
+
+.flood-alert-list {
+  display: grid;
+  gap: 12px;
+}
+
+.flood-alert-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--mist);
+}
+
+.flood-alert-card strong {
+  display: block;
+}
+
+.flood-alert-card p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.flood-alert-card time {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.severity-pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.map-locate-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  padding: 8px 14px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.map-locate-button:hover {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+.map-empty {
+  color: var(--muted);
+}
+
+.map-empty.error {
+  color: var(--red);
+}
+
+.flood-popup h3 {
+  margin: 8px 0 4px;
+  font-size: 16px;
+}
+
+.flood-popup p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.flood-popup-instruction {
+  font-weight: 700;
+}
+
+.flood-popup-time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 980px) {
+  .flood-map-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .flood-alert-rail {
+    max-height: none;
+  }
+
+  #flood-map {
+    height: 460px;
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard-title-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
