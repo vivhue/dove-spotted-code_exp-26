@@ -7,6 +7,48 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
 const PUBLIC_DIR = path.join(__dirname, "..", "frontend", "public");
 
+// Short-lived demo token (expires 2026-06-11). Override with ONEMAP_TOKEN for
+// longer-term use — generate one at https://www.onemap.gov.sg/apidocs/.
+const ONEMAP_TOKEN = process.env.ONEMAP_TOKEN ||
+  "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxNTgyOSwiZm9yZXZlciI6ZmFsc2UsImlzcyI6Ik9uZU1hcCIsImlhdCI6MTc4MDkxMTI1OCwibmJmIjoxNzgwOTExMjU4LCJleHAiOjE3ODExNzA0NTgsImp0aSI6IjM0NTlkMWFmLTdmNTItNGI2MS05YjA3LTA5ZGRlNDdmODBjZiJ9.QkDlLIGZoxRlV_fMWw0MStTjSieJqqpIAqeypWlv8JXZ1A5CKBc6Lacanobnatk18NJ3AC62pJ-FOFJIE1KWY2xWE97aAigBykl9knq80kgnQGi6tTtxXu7-qmvjh9WfQob5KbYkzAYLsl-B7EjeNVk4Dq1dPsh4QnfB9NMEmX84r--PYgImLIARclbY09chVsPsFyDBn07jKBgkwh6Y6sykhCQO4BeysAT2np3USnF_XTltU1Jauiy59hT7BiTE0BYc13vLmCh_HO5YcRKqm9yyUG8zNaau6jUnH09amZ_uuP_B4HkuxLyQZ6rajZBTlJoKsnaHaH3wyVDceK7cgQ";
+
+const FLOOD_ALERTS_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather/flood-alerts";
+const ONEMAP_REVGEOCODE_URL = "https://www.onemap.gov.sg/api/public/revgeocode";
+
+const cache = new Map();
+
+async function cached(key, ttlMs, fetcher) {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.time < ttlMs) return hit.value;
+  const value = await fetcher();
+  cache.set(key, { value, time: Date.now() });
+  return value;
+}
+
+async function fetchFloodAlerts() {
+  const response = await fetch(FLOOD_ALERTS_URL);
+  if (!response.ok) throw new Error(`Flood alert upstream error: ${response.status}`);
+  const payload = await response.json();
+  return payload.data?.records || [];
+}
+
+async function fetchNearestAddress(lat, lng) {
+  const url = `${ONEMAP_REVGEOCODE_URL}?location=${lat},${lng}&buffer=50&addressType=All&otherFeatures=N`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${ONEMAP_TOKEN}` }
+  });
+  if (!response.ok) throw new Error(`OneMap upstream error: ${response.status}`);
+  const payload = await response.json();
+  const result = payload.GeocodeInfo?.[0];
+  if (!result) return null;
+  return {
+    building: result.BUILDINGNAME,
+    block: result.BLOCK,
+    road: result.ROAD,
+    postalCode: result.POSTALCODE
+  };
+}
+
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -122,6 +164,34 @@ function validatePublicLogin(body) {
 async function handleApi(req, res) {
   if (req.method === "GET" && req.url === "/api/status") {
     sendJson(res, 200, { ...liveStatus, lastUpdated: new Date().toISOString() });
+    return;
+  }
+
+  if (req.method === "GET" && req.url.startsWith("/api/flood-alerts")) {
+    try {
+      const records = await cached("flood-alerts", 60_000, fetchFloodAlerts);
+      sendJson(res, 200, { records, fetchedAt: new Date().toISOString() });
+    } catch (error) {
+      sendJson(res, 502, { error: "Unable to reach the flood alert service." });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && req.url.startsWith("/api/onemap/revgeocode")) {
+    const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
+    const lat = Number(params.get("lat"));
+    const lng = Number(params.get("lng"));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      sendJson(res, 400, { error: "lat and lng query parameters are required." });
+      return;
+    }
+    try {
+      const key = `revgeocode:${lat.toFixed(4)},${lng.toFixed(4)}`;
+      const address = await cached(key, 30 * 60_000, () => fetchNearestAddress(lat, lng));
+      sendJson(res, 200, { address });
+    } catch (error) {
+      sendJson(res, 502, { error: "Unable to reach the OneMap service." });
+    }
     return;
   }
 

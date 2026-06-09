@@ -6,7 +6,8 @@ const routes = {
   "#/login": renderRoleSelection,
   "#/login/professional": renderProfessionalLogin,
   "#/login/public": renderPublicLogin,
-  "#/dashboard": renderDashboard
+  "#/dashboard": renderDashboard,
+  "#/flood-map": renderFloodMap
 };
 
 const capabilities = [
@@ -319,7 +320,10 @@ async function renderDashboard() {
             <p class="eyebrow">Live dashboard</p>
             <h1>${session ? session.role === "professional" ? "Professional Operations View" : "Public Response View" : "Emergency Status"}</h1>
           </div>
-          <button class="secondary-button compact" data-signout>Sign Out</button>
+          <div class="dashboard-title-actions">
+            <a class="secondary-button compact" href="#/flood-map">${icon("alert")} Live Flood Map</a>
+            <button class="secondary-button compact" data-signout>Sign Out</button>
+          </div>
         </section>
         <section class="metric-grid" aria-label="Live emergency metrics"></section>
         <section class="incident-section">
@@ -368,7 +372,171 @@ function metric(label, value) {
   `;
 }
 
+const SEVERITY_ORDER = ["Extreme", "Severe", "Moderate", "Minor"];
+const SEVERITY_COLORS = {
+  Extreme: "#a92525",
+  Severe: "#c53d32",
+  Moderate: "#c47a1b",
+  Minor: "#0f766e"
+};
+
+let floodMapTimer = null;
+
+function severityColor(severity) {
+  return SEVERITY_COLORS[severity] || "#5e655f";
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-SG", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function activeFloodReadings(records) {
+  const cancelledIds = new Set();
+  records.forEach((record) => {
+    const item = record.item;
+    if (item?.msgType === "Cancel" && item.references) {
+      item.references.split(";").forEach((group) => {
+        const parts = group.split(",").map((part) => part.trim());
+        if (parts.length >= 2) cancelledIds.add(parts[1]);
+      });
+    }
+  });
+
+  const entries = [];
+  records
+    .filter((record) => record.item?.msgType === "Alert" && !cancelledIds.has(record.item.identifier))
+    .forEach((record) => {
+      (record.item.readings || []).forEach((reading) => {
+        if (reading.event === "Flood" && Array.isArray(reading.area?.circle)) {
+          entries.push({ record, reading });
+        }
+      });
+    });
+  return entries;
+}
+
+function floodPopup({ record, reading }) {
+  return `
+    <div class="flood-popup">
+      <span class="severity-pill" style="background:${severityColor(reading.severity)}">${reading.severity || "Unknown"}</span>
+      <h3>${reading.headline || reading.event}</h3>
+      <p>${reading.description || reading.area?.areaDesc || ""}</p>
+      ${reading.instruction ? `<p class="flood-popup-instruction">${reading.instruction}</p>` : ""}
+      <p class="flood-popup-time">Issued ${formatDateTime(record.datetime)}</p>
+    </div>
+  `;
+}
+
+function floodListItem({ record, reading }, index) {
+  return `
+    <article class="flood-alert-card">
+      <span class="severity-pill" style="background:${severityColor(reading.severity)}">${reading.severity || "Unknown"}</span>
+      <div>
+        <strong>${reading.headline || reading.event}</strong>
+        <p>${reading.area?.areaDesc || reading.description || ""}</p>
+        <time>${formatDateTime(record.datetime)}</time>
+      </div>
+      <button type="button" class="map-locate-button" data-locate="${index}">Locate</button>
+    </article>
+  `;
+}
+
+async function renderFloodMap() {
+  app.innerHTML = `
+    <div class="page flood-map-page">
+      ${header({ backHref: "#/dashboard" })}
+      <main class="flood-map-shell">
+        <section class="dashboard-title">
+          <div>
+            <p class="eyebrow">Live map · OneMap basemap + PUB flood alerts</p>
+            <h1>Flooding Areas Across Singapore</h1>
+          </div>
+          <p class="map-updated" data-updated>Loading live flood data…</p>
+        </section>
+        <div class="flood-map-layout">
+          <div class="flood-map-canvas">
+            <div id="flood-map" aria-label="Map of active flood alerts in Singapore"></div>
+            <ul class="map-legend" aria-label="Severity legend">
+              ${SEVERITY_ORDER.map((level) => `<li><i style="background:${severityColor(level)}"></i>${level}</li>`).join("")}
+            </ul>
+          </div>
+          <aside class="flood-alert-rail" aria-label="Active flood alerts">
+            <h2>Active Alerts</h2>
+            <div class="flood-alert-list" data-alert-list><p class="map-empty">Loading…</p></div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  `;
+
+  const map = L.map("flood-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
+  L.tileLayer("https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png", {
+    detectRetina: true,
+    maxZoom: 19,
+    minZoom: 11,
+    attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
+  }).addTo(map);
+
+  const markerLayer = L.layerGroup().addTo(map);
+
+  async function refresh() {
+    const updatedLabel = document.querySelector("[data-updated]");
+    const list = document.querySelector("[data-alert-list]");
+    if (!updatedLabel || !list) return;
+
+    try {
+      const response = await fetch("/api/flood-alerts");
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to load flood alerts.");
+
+      const entries = activeFloodReadings(payload.records || []);
+
+      markerLayer.clearLayers();
+      const circles = entries.map((entry) => {
+        const [lat, lng, radiusKm] = entry.reading.area.circle;
+        const color = severityColor(entry.reading.severity);
+        return L.circle([lat, lng], {
+          radius: Math.max(radiusKm, 0.15) * 1000,
+          color,
+          weight: 2,
+          fillColor: color,
+          fillOpacity: 0.22
+        })
+          .bindPopup(floodPopup(entry))
+          .addTo(markerLayer);
+      });
+
+      list.innerHTML = entries.length
+        ? entries.map((entry, index) => floodListItem(entry, index)).join("")
+        : `<p class="map-empty">No active flood alerts reported right now — Singapore is clear.</p>`;
+
+      list.querySelectorAll("[data-locate]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const circle = circles[Number(button.dataset.locate)];
+          map.flyTo(circle.getLatLng(), 15, { duration: 0.6 });
+          circle.openPopup();
+        });
+      });
+
+      updatedLabel.textContent = `Last updated ${formatDateTime(payload.fetchedAt)} · ${entries.length} active alert${entries.length === 1 ? "" : "s"}`;
+    } catch (error) {
+      updatedLabel.textContent = "Unable to load live flood alerts.";
+      list.innerHTML = `<p class="map-empty error">${error.message}</p>`;
+    }
+  }
+
+  await refresh();
+  floodMapTimer = window.setInterval(refresh, 60_000);
+}
+
 function renderRoute() {
+  if (floodMapTimer) {
+    window.clearInterval(floodMapTimer);
+    floodMapTimer = null;
+  }
   const renderer = routes[window.location.hash] || renderLanding;
   renderer();
 }
