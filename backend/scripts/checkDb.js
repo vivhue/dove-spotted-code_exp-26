@@ -30,12 +30,14 @@ async function checkDatabase() {
     return;
   }
 
-  const [professionalCount, publicCount] = await Promise.all([
-    User.countDocuments({ role: "professional" }),
+  const [approvedProfessionalCount, pendingProfessionalCount, publicCount] = await Promise.all([
+    User.countDocuments({ role: "professional", status: "approved" }),
+    User.countDocuments({ role: "professional", status: "pending" }),
     User.countDocuments({ role: "public" })
   ]);
 
-  console.log(`Approved/test professionals found: ${professionalCount}`);
+  console.log(`Approved professionals found: ${approvedProfessionalCount}`);
+  console.log(`Pending professionals found: ${pendingProfessionalCount}`);
   console.log(`Public accounts found: ${publicCount}`);
   console.log("MongoDB connection check passed.");
 }

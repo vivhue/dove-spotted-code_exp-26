@@ -75,6 +75,29 @@ const userSchema = new mongoose.Schema(
     telegramLinkedAt: {
       type: Date
     },
+    telegramLinkTokenHash: {
+      type: String,
+      select: false,
+      default: ""
+    },
+    telegramLinkExpiresAt: {
+      type: Date,
+      select: false
+    },
+    passwordResetCodeHash: {
+      type: String,
+      select: false,
+      default: ""
+    },
+    passwordResetExpiresAt: {
+      type: Date,
+      select: false
+    },
+    passwordResetAttempts: {
+      type: Number,
+      select: false,
+      default: 0
+    },
     mfaMethod: {
       type: String,
       enum: ["telegram", "demo", "none"],

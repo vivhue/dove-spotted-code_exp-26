@@ -59,14 +59,13 @@ Professional verification code:
 3. Enter the generated code.
 4. Click `Sign In`.
 
-Without Telegram setup, the app shows the demo code on the page and prints it
-in the terminal.
+Professional OTP requires MongoDB and a Telegram account linked to that
+specific professional.
 
 For Telegram delivery, create a `.env` file in the project root:
 
 ```text
 TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
 TELEGRAM_BOT_USERNAME=your_bot_username_without_at
 OTP_SECRET=change_this_to_any_long_random_text
 ```
@@ -123,6 +122,39 @@ Both passwords are stored as hashes in MongoDB. Professional users must have
 Public email login requires an existing account. New volunteers register at
 `http://127.0.0.1:3000/#/signup/volunteer`.
 
+Professional registration:
+
+1. Open `http://127.0.0.1:3000/#/signup/professional`.
+2. Register with a supported agency and official work email.
+3. The account is stored with `role: "professional"` and `status: "pending"`.
+4. An administrator opens `http://127.0.0.1:3000/#/admin/login`.
+5. The administrator reviews the registration and selects Approve or Reject.
+6. An approved user can sign in with the password they chose and connect their own
+   Telegram account.
+
+Supported production domains are checked against the selected agency:
+`scdf.gov.sg`, `spf.gov.sg`, `moh.gov.sg`, `nea.gov.sg`, `pub.gov.sg`, and
+`lta.gov.sg`. For local classroom accounts, domains listed in
+`PROFESSIONAL_TEST_DOMAINS` are also accepted. The default is
+`quickaid.test`, including subdomains such as `scdf.quickaid.test`.
+
+Matching an email domain does not approve an account. Administrator review is
+still required.
+
+Administrator setup:
+
+Add a private administrator account to `.env`:
+
+```text
+SEED_ADMIN_EMAIL=admin@quickaid.test
+SEED_ADMIN_PASSWORD=use_a_strong_unique_password
+SEED_ADMIN_NAME=QuickAid Administrator
+```
+
+Run `npm run seed`, then sign in at
+`http://127.0.0.1:3000/#/admin/login`. The approval API requires a temporary
+admin session token and does not accept professional or public accounts.
+
 Team MongoDB setup:
 
 The `.env` file is ignored by Git because it contains private credentials.
@@ -160,6 +192,11 @@ Password security:
 - Passwords are hashed with `bcrypt.hash()`.
 - Login checks use `bcrypt.compare()`.
 - Plain-text passwords are never stored in MongoDB.
+- Original passwords are never displayed or sent through Telegram.
+- Approved professionals can reset a forgotten password at
+  `http://127.0.0.1:3000/#/reset/professional`.
+- Reset codes expire after five minutes, are stored as hashes, and are sent
+  only to the Telegram chat already linked to that user's account.
 
 Telegram OTP:
 
@@ -167,45 +204,42 @@ Telegram OTP:
   an OTP.
 - The user clicks `Connect Telegram`, starts the bot, and the backend saves
   that user's Telegram `chat.id` to only their MongoDB record.
-- `TELEGRAM_CHAT_ID` is retained only as a no-database local demo fallback. It
-  is never used as a fallback for MongoDB professional accounts.
+- There is no shared `TELEGRAM_CHAT_ID` fallback. If MongoDB is unavailable or
+  a professional has not linked Telegram, no OTP is generated or sent.
 - Seeded team accounts start with no Telegram chat linked.
-- Full automatic linking requires a public Telegram webhook URL. Localhost
-  cannot receive Telegram webhook calls directly.
+- Local development uses Telegram polling, so linking works without ngrok.
+- Run only one shared polling server for the bot at a time.
 
 Telegram connect flow:
 
-1. Add these values to `.env`:
+1. For local development, add these values to `.env`:
 
 ```text
 TELEGRAM_BOT_USERNAME=your_bot_username_without_at
-TELEGRAM_WEBHOOK_SECRET=any_random_secret
-PUBLIC_BASE_URL=https://your-public-url
+TELEGRAM_POLLING=true
 ```
 
-2. During local development, create a public HTTPS URL with a tunnel such as
-   ngrok:
-
-```bash
-ngrok http 3000
-```
-
-3. Put the ngrok HTTPS URL into `.env` as `PUBLIC_BASE_URL`.
-
-4. Register the webhook with Telegram:
-
-```bash
-npm run telegram:webhook
-```
-
-5. Start QuickAid:
+2. Start QuickAid:
 
 ```bash
 nodemon backend/server.js
 ```
 
-6. On Professional Login, enter email/password and click `Connect Telegram`.
+3. On Professional Login, enter email/password and click `Connect Telegram`.
    Telegram opens. Tap `Start`, and QuickAid saves the user's `telegramChatId`
    to MongoDB.
 
 After that, `Send 6-digit code` sends OTPs to that user's linked Telegram chat.
+
+For a deployed server, set `TELEGRAM_POLLING=false`, configure
+`PUBLIC_BASE_URL` and `TELEGRAM_WEBHOOK_SECRET`, then run
+`npm run telegram:webhook`.
+
+Check Telegram ownership and webhook health:
+
+```bash
+npm run telegram:check
+```
+
+This masks chat IDs, reports duplicate ownership, and shows whether Telegram
+currently has a webhook URL configured.
