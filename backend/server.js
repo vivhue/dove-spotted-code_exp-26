@@ -327,6 +327,46 @@ async function fetchOneMapSearch(query) {
     .filter((result) => Number.isFinite(result.lat) && Number.isFinite(result.lng));
 }
 
+function volunteerLocationError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+async function resolveVolunteerLocation(locationLabel, zone) {
+  const input = String(locationLabel || "").trim();
+  const zoneCoordinates = ZONE_COORDINATES[zone];
+  if (!/^\d{6}$/.test(input)) {
+    return {
+      currentLocationLabel: input,
+      postalCode: "",
+      locationVerified: false,
+      lat: zoneCoordinates.lat,
+      lng: zoneCoordinates.lng
+    };
+  }
+
+  let results;
+  try {
+    results = await cached(`onemap-search:${input}`, 30 * 60_000, () => fetchOneMapSearch(input));
+  } catch (error) {
+    throw volunteerLocationError("Unable to verify that postal code with OneMap right now.", 502);
+  }
+
+  const result = results.find((item) => item.postalCode === input) || results[0];
+  if (!result) {
+    throw volunteerLocationError("No Singapore location was found for that postal code.");
+  }
+
+  return {
+    currentLocationLabel: result.address || result.name || `Singapore ${input}`,
+    postalCode: result.postalCode || input,
+    locationVerified: true,
+    lat: result.lat,
+    lng: result.lng
+  };
+}
+
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -440,17 +480,17 @@ const liveStatus = {
   ]
 };
 
-const emergencySpaces = [
+let emergencySpaces = [
   {
     id: 1,
     name: "Singapore Expo Hall 3",
-    type: "Emergency Medical Site",
+    type: "Temporary Shelter",
     region: "Changi",
     capacity: 1200,
     currentOccupancy: 0,
     setupTimeHours: 2,
     wheelchairAccess: true,
-    status: "INACTIVE"
+    status: "READY"
   },
   {
     id: 2,
@@ -461,25 +501,105 @@ const emergencySpaces = [
     currentOccupancy: 0,
     setupTimeHours: 1,
     wheelchairAccess: true,
-    status: "INACTIVE"
+    status: "READY"
   },
   {
     id: 3,
     name: "Our Tampines Hub",
-    type: "Relief Centre",
+    type: "Temporary Shelter",
     region: "Tampines",
     capacity: 800,
     currentOccupancy: 0,
     setupTimeHours: 1.5,
     wheelchairAccess: true,
-    status: "INACTIVE"
+    status: "READY"
   }
 ];
+let nextEmergencySpaceId = Math.max(...emergencySpaces.map((space) => space.id)) + 1;
+
+function serializeEmergencySpace(space) {
+  const capacity = Math.max(0, Number(space.capacity) || 0);
+  const currentOccupancy = Math.max(0, Math.min(capacity, Number(space.currentOccupancy ?? space.occupancy) || 0));
+  const status = String(space.status || "INACTIVE").toUpperCase();
+  return {
+    ...space,
+    capacity,
+    currentOccupancy,
+    occupancy: currentOccupancy,
+    status
+  };
+}
+
+function emergencySpaceStatusFor({ capacity, currentOccupancy, requestedStatus }) {
+  const status = String(requestedStatus || "").toUpperCase();
+  if (status === "INACTIVE" || status === "CLOSED") return "INACTIVE";
+  if (currentOccupancy >= capacity && capacity > 0) return "FULL";
+  if (currentOccupancy >= capacity * 0.7 && capacity > 0) return "NEARLY FULL";
+  return "READY";
+}
+
+function validateEmergencySpace(body, { partial = false } = {}) {
+  const errors = {};
+  const get = (field) => body[field] !== undefined && body[field] !== null;
+  const allowedTypes = new Set(["Temporary Shelter", "Hospital"]);
+  if (!partial || get("name")) {
+    const name = String(body.name || "").trim();
+    if (name.length < 3 || name.length > 100) errors.name = "Enter a space name between 3 and 100 characters.";
+  }
+  if (!partial || get("type")) {
+    const type = String(body.type || "").trim();
+    if (!allowedTypes.has(type)) errors.type = "Choose Shelter or Hospital.";
+  }
+  if (!partial || get("region")) {
+    const region = String(body.region || "").trim();
+    if (region.length < 2 || region.length > 80) errors.region = "Enter the region or zone.";
+  }
+  if (!partial || get("address")) {
+    const address = String(body.address || "").trim();
+    if (address.length < 2 || address.length > 140) errors.address = "Enter the location or address.";
+  }
+  if (!partial || get("capacity")) {
+    const capacity = Number(body.capacity);
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 10000) errors.capacity = "Capacity must be a whole number from 1 to 10000.";
+  }
+  if (get("currentOccupancy")) {
+    const occupancy = Number(body.currentOccupancy);
+    if (!Number.isInteger(occupancy) || occupancy < 0) errors.currentOccupancy = "Occupancy must be a whole number of zero or more.";
+  }
+  if (get("setupTimeHours")) {
+    const setupTimeHours = Number(body.setupTimeHours);
+    if (!Number.isFinite(setupTimeHours) || setupTimeHours < 0 || setupTimeHours > 168) errors.setupTimeHours = "Setup time must be between 0 and 168 hours.";
+  }
+  const hasLat = get("lat") && String(body.lat).trim() !== "";
+  const hasLng = get("lng") && String(body.lng).trim() !== "";
+  if (hasLat || hasLng) {
+    const lat = Number(body.lat);
+    const lng = Number(body.lng);
+    if (!hasLat || !hasLng || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+      errors.location = "Location coordinates must be valid latitude and longitude values.";
+    }
+  }
+  return errors;
+}
+
+function requireProfessionalSession(req, res, action = "perform this action") {
+  const session = getUserSession(req);
+  if (!session) {
+    sendJson(res, 401, { error: "Professional sign-in required." });
+    return null;
+  }
+  if (session.role !== "professional") {
+    sendJson(res, 403, { error: `Only professional accounts can ${action}.` });
+    return null;
+  }
+  return session;
+}
 
 const simulationScenarios = [
   {
     id: "flash-flood-jurong",
     name: "Flash Flood — Jurong West",
+    status: "Active",
     type: "Flood",
     zone: "Jurong West",
     severity: "Critical",
@@ -496,6 +616,7 @@ const simulationScenarios = [
   {
     id: "fire-bedok",
     name: "Residential Fire — Bedok",
+    status: "Active",
     type: "Fire",
     zone: "Bedok",
     severity: "High",
@@ -512,6 +633,7 @@ const simulationScenarios = [
   {
     id: "dengue-tampines",
     name: "Dengue Cluster Surge — Tampines",
+    status: "Active",
     type: "Health",
     zone: "Tampines",
     severity: "Medium",
@@ -523,6 +645,23 @@ const simulationScenarios = [
       volunteersNeeded: 6,
       medicalKits: 25,
       foodPacks: 0
+    }
+  },
+  {
+    id: "shelter-support-clementi",
+    name: "Community Shelter Support — Clementi",
+    status: "Completed",
+    type: "Flood",
+    zone: "Clementi",
+    severity: "Medium",
+    affectedPeople: 120,
+    estimatedCasualties: 4,
+    resourceDemand: {
+      shelterSpaces: 80,
+      hospitalBeds: 5,
+      volunteersNeeded: 4,
+      medicalKits: 10,
+      foodPacks: 120
     }
   }
 ];
@@ -611,6 +750,78 @@ let volunteerProfiles = [
     deploymentResponsePending: false,
     lat: ZONE_COORDINATES["Jurong East"].lat,
     lng: ZONE_COORDINATES["Jurong East"].lng
+  },
+  {
+    id: 5,
+    name: "Priya Nair",
+    email: "priya.volunteer@quickaid.local",
+    phone: "85678901",
+    skills: ["First Aid", "Logistics"],
+    zone: "Jurong West",
+    currentLocationLabel: "Boon Lay Community Club",
+    availability: "Available",
+    status: "Assigned",
+    assignedIncidentId: "flash-flood-jurong",
+    assignedIncidentName: "Flash Flood — Jurong West",
+    assignedTask: "Support shelter intake, distribution, and flood relief",
+    notificationMessage: "Simulated notification: Assignment received. Awaiting departure.",
+    deploymentResponsePending: false,
+    lat: ZONE_COORDINATES["Jurong West"].lat,
+    lng: ZONE_COORDINATES["Jurong West"].lng
+  },
+  {
+    id: 6,
+    name: "Marcus Lee",
+    email: "marcus.volunteer@quickaid.local",
+    phone: "86789012",
+    skills: ["Driving", "Crowd Control"],
+    zone: "Bedok",
+    currentLocationLabel: "Bedok Community Centre",
+    availability: "Available",
+    status: "En Route",
+    assignedIncidentId: "fire-bedok",
+    assignedIncidentName: "Residential Fire — Bedok",
+    assignedTask: "Assist evacuation support and first-aid logistics",
+    notificationMessage: "Simulated notification: Volunteer is travelling to the incident.",
+    deploymentResponsePending: false,
+    lat: ZONE_COORDINATES.Bedok.lat,
+    lng: ZONE_COORDINATES.Bedok.lng
+  },
+  {
+    id: 7,
+    name: "Nur Izzati",
+    email: "izzati.volunteer@quickaid.local",
+    phone: "87890123",
+    skills: ["First Aid", "Community Outreach"],
+    zone: "Tampines",
+    currentLocationLabel: "Tampines West Community Club",
+    availability: "Available",
+    status: "On Site",
+    assignedIncidentId: "dengue-tampines",
+    assignedIncidentName: "Dengue Cluster Surge — Tampines",
+    assignedTask: "Support triage logistics and community outreach",
+    notificationMessage: "Simulated notification: Volunteer has arrived on site.",
+    deploymentResponsePending: false,
+    lat: ZONE_COORDINATES.Tampines.lat,
+    lng: ZONE_COORDINATES.Tampines.lng
+  },
+  {
+    id: 8,
+    name: "Ethan Wong",
+    email: "ethan.volunteer@quickaid.local",
+    phone: "88901234",
+    skills: ["Shelter Ops", "Translation"],
+    zone: "Clementi",
+    currentLocationLabel: "Clementi Community Centre",
+    availability: "Available",
+    status: "Completed",
+    assignedIncidentId: "shelter-support-clementi",
+    assignedIncidentName: "Community Shelter Support — Clementi",
+    assignedTask: "Support shelter intake, distribution, and flood relief",
+    notificationMessage: "Simulated notification: The incident has ended and all assigned deployments are complete.",
+    deploymentResponsePending: false,
+    lat: ZONE_COORDINATES.Clementi.lat,
+    lng: ZONE_COORDINATES.Clementi.lng
   }
 ];
 let nextVolunteerId = volunteerProfiles.length + 1;
@@ -719,6 +930,37 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+const SECURITY_QUESTIONS = {
+  first_school: "What was the name of your first school?",
+  childhood_nickname: "What was your childhood nickname?",
+  memorable_place: "What place is most memorable to you?",
+  first_job: "What was your first job or volunteer role?"
+};
+
+function normalizeSecurityAnswer(answer) {
+  return String(answer || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function securityAnswerDigest(answer) {
+  return crypto.createHash("sha256").update(normalizeSecurityAnswer(answer), "utf8").digest("hex");
+}
+
+function validSecurityQuestion(question) {
+  return Boolean(SECURITY_QUESTIONS[String(question || "").trim()]);
+}
+
+function validSecurityAnswer(answer) {
+  const normalized = normalizeSecurityAnswer(answer);
+  return normalized.length >= 2 && normalized.length <= 120;
+}
+
+function invalidateUserSessions(userId) {
+  const targetId = String(userId);
+  userSessionStore.forEach((session, token) => {
+    if (String(session.userId) === targetId) userSessionStore.delete(token);
+  });
+}
+
 function hasMissingRequired(body, fields) {
   return fields.some((field) => {
     const value = body[field];
@@ -755,7 +997,7 @@ function validateProfessionalSignup(body) {
   const agency = String(body.agency || "").trim().toUpperCase();
   const roleTitle = String(body.roleTitle || "").trim();
 
-  if (hasMissingRequired(body, ["name", "email", "agency", "roleTitle", "password", "confirmPassword"])) {
+  if (hasMissingRequired(body, ["name", "email", "agency", "roleTitle", "password", "confirmPassword", "securityQuestion", "securityAnswer"])) {
     errors.required = "Please fill in all required fields.";
     return errors;
   }
@@ -765,6 +1007,8 @@ function validateProfessionalSignup(body) {
   if (roleTitle.length < 2 || roleTitle.length > 100) errors.roleTitle = "Enter your role or title.";
   if (!isStrongPassword(body.password)) errors.password = PASSWORD_REQUIREMENTS_MESSAGE;
   if (body.password !== body.confirmPassword) errors.confirmPassword = "Passwords do not match.";
+  if (!validSecurityQuestion(body.securityQuestion)) errors.securityQuestion = "Choose a security question.";
+  if (!validSecurityAnswer(body.securityAnswer)) errors.securityAnswer = "Security answer must contain 2 to 120 characters.";
   return errors;
 }
 
@@ -785,7 +1029,7 @@ function validateVolunteerSignup(body) {
   const postalCode = String(body.postalCode || "").trim();
   const allowedAvailability = ["weekdays", "evenings", "weekends", "emergency"];
 
-  if (hasMissingRequired(body, ["name", "email", "phone", "password", "confirmPassword", "availability", "acceptTerms"])) {
+  if (hasMissingRequired(body, ["name", "email", "phone", "password", "confirmPassword", "securityQuestion", "securityAnswer", "availability", "acceptTerms"])) {
     errors.required = "Please fill in all required fields.";
     return errors;
   }
@@ -794,6 +1038,8 @@ function validateVolunteerSignup(body) {
   else if (!personalDomainAllowed(body.email)) errors.email = "Please use a valid personal email address.";
   if (!isStrongPassword(body.password)) errors.password = PASSWORD_REQUIREMENTS_MESSAGE;
   if (body.password !== body.confirmPassword) errors.confirmPassword = "Passwords do not match.";
+  if (!validSecurityQuestion(body.securityQuestion)) errors.securityQuestion = "Choose a security question.";
+  if (!validSecurityAnswer(body.securityAnswer)) errors.securityAnswer = "Security answer must contain 2 to 120 characters.";
   if (!/^[689]\d{7}$/.test(phone)) errors.phone = "Enter a valid 8-digit Singapore phone number.";
   if (postalCode && !/^\d{6}$/.test(postalCode)) errors.postalCode = "Postal code must contain 6 digits.";
   if (!allowedAvailability.includes(body.availability)) {
@@ -808,7 +1054,14 @@ function validateVolunteerSignup(body) {
 async function findUser(email, role, extraSelect = "") {
   if (!mongoConnected) return null;
   const query = { email: normalizeEmail(email) };
-  if (role) query.role = role;
+  if (role === "volunteer") {
+    query.$or = [
+      { role: "volunteer" },
+      { role: "public", isVolunteer: true }
+    ];
+  } else if (role) {
+    query.role = role;
+  }
   let result = User.findOne(query);
   if (extraSelect) result = result.select(extraSelect);
   return result;
@@ -941,7 +1194,7 @@ async function handleApi(req, res) {
         return;
       }
       if (req.method === "POST" && req.url.startsWith("/api/risk/predict")) {
-        await risk.handlePredict(req, res);
+        await risk.handlePredict(req, res, cached);
         return;
       }
     } catch (err) {
@@ -982,7 +1235,98 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "GET" && req.url === "/api/emergency-spaces") {
-    sendJson(res, 200, emergencySpaces);
+    sendJson(res, 200, emergencySpaces.map(serializeEmergencySpace));
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/emergency-spaces") {
+    const session = requireProfessionalSession(req, res, "add emergency conversion spaces");
+    if (!session) return;
+    try {
+      const body = await parseBody(req);
+      const errors = validateEmergencySpace(body);
+      if (Object.keys(errors).length) {
+        sendJson(res, 400, { error: "Unable to add emergency conversion space.", fields: errors });
+        return;
+      }
+
+      const capacity = Number(body.capacity);
+      const currentOccupancy = Math.max(0, Math.min(capacity, Number(body.currentOccupancy) || 0));
+      const rawLat = String(body.lat ?? "").trim();
+      const rawLng = String(body.lng ?? "").trim();
+      const lat = Number(rawLat);
+      const lng = Number(rawLng);
+      const space = {
+        id: nextEmergencySpaceId++,
+        name: String(body.name).trim(),
+        type: String(body.type).trim(),
+        address: String(body.address || "").trim(),
+        region: String(body.region).trim(),
+        capacity,
+        currentOccupancy,
+        setupTimeHours: Number(body.setupTimeHours) || 0,
+        wheelchairAccess: Boolean(body.wheelchairAccess),
+        status: emergencySpaceStatusFor({ capacity, currentOccupancy, requestedStatus: body.status || "READY" }),
+        ...(rawLat && rawLng && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {}),
+        createdBy: session.email,
+        createdAt: new Date().toISOString()
+      };
+      emergencySpaces.push(space);
+      sendJson(res, 201, { space: serializeEmergencySpace(space) });
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
+    return;
+  }
+
+  if (req.method === "PATCH" && /^\/api\/emergency-spaces\/\d+$/.test(req.url)) {
+    const session = requireProfessionalSession(req, res, "update emergency conversion spaces");
+    if (!session) return;
+    try {
+      const spaceId = Number(req.url.split("/")[3]);
+      const space = emergencySpaces.find((item) => item.id === spaceId);
+      if (!space) {
+        sendJson(res, 404, { error: "Emergency conversion space not found." });
+        return;
+      }
+
+      const body = await parseBody(req);
+      const errors = validateEmergencySpace(body, { partial: true });
+      if (Object.keys(errors).length) {
+        sendJson(res, 400, { error: "Unable to update emergency conversion space.", fields: errors });
+        return;
+      }
+
+      if (body.name !== undefined) space.name = String(body.name).trim();
+      if (body.type !== undefined) space.type = String(body.type).trim();
+      if (body.address !== undefined) space.address = String(body.address || "").trim();
+      if (body.region !== undefined) space.region = String(body.region).trim();
+      if (body.capacity !== undefined) space.capacity = Number(body.capacity);
+      if (body.setupTimeHours !== undefined) space.setupTimeHours = Number(body.setupTimeHours) || 0;
+      if (body.wheelchairAccess !== undefined) space.wheelchairAccess = Boolean(body.wheelchairAccess);
+      const rawLat = String(body.lat ?? "").trim();
+      const rawLng = String(body.lng ?? "").trim();
+      if (rawLat && rawLng) {
+        space.lat = Number(rawLat);
+        space.lng = Number(rawLng);
+      }
+
+      const capacity = Math.max(0, Number(space.capacity) || 0);
+      const nextOccupancy = body.currentOccupancy !== undefined
+        ? Number(body.currentOccupancy)
+        : Number(space.currentOccupancy ?? space.occupancy) || 0;
+      space.currentOccupancy = Math.max(0, Math.min(capacity, nextOccupancy));
+      space.status = emergencySpaceStatusFor({
+        capacity,
+        currentOccupancy: space.currentOccupancy,
+        requestedStatus: body.status || space.status
+      });
+      space.updatedBy = session.email;
+      space.updatedAt = new Date().toISOString();
+      sendJson(res, 200, { space: serializeEmergencySpace(space) });
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
     return;
   }
 
@@ -991,7 +1335,52 @@ async function handleApi(req, res) {
     return;
   }
 
+  if (req.method === "POST" && /^\/api\/simulation\/scenarios\/[^/]+\/complete$/.test(req.url)) {
+    const session = requireProfessionalSession(req, res, "complete incidents");
+    if (!session) return;
+    const scenarioId = decodeURIComponent(req.url.split("/")[4]);
+    const scenario = simulationScenarios.find((item) => item.id === scenarioId);
+    if (!scenario) {
+      sendJson(res, 404, { error: "Incident scenario not found." });
+      return;
+    }
+    if (scenario.status === "Completed") {
+      sendJson(res, 409, { error: "This incident is already completed." });
+      return;
+    }
+
+    scenario.status = "Completed";
+    const completedVolunteers = [];
+    volunteerProfiles.forEach((volunteer) => {
+      if (volunteer.assignedIncidentId !== scenario.id) return;
+      volunteer.status = "Completed";
+      volunteer.deploymentResponsePending = false;
+      volunteer.notificationMessage = `Simulated notification: ${scenario.name} has ended. Your deployment is complete.`;
+      completedVolunteers.push(serializeVolunteer(volunteer));
+    });
+    sendJson(res, 200, {
+      scenario,
+      completedVolunteers,
+      message: `${scenario.name} completed.`
+    });
+    return;
+  }
+
   if (req.method === "GET" && req.url === "/api/volunteers") {
+    await Promise.all(volunteerProfiles.map(async (volunteer) => {
+      if (volunteer.locationVerified || !/^\d{6}$/.test(volunteer.currentLocationLabel || "")) return;
+      try {
+        Object.assign(
+          volunteer,
+          await resolveVolunteerLocation(volunteer.currentLocationLabel, volunteer.zone)
+        );
+      } catch (error) {
+        logger.logError("volunteers.locationUpgrade", error, {
+          volunteerId: volunteer.id,
+          location: volunteer.currentLocationLabel
+        });
+      }
+    }));
     sendJson(res, 200, volunteerProfiles.map(serializeVolunteer));
     return;
   }
@@ -1013,7 +1402,7 @@ async function handleApi(req, res) {
 
       const zone = normalizeZone(body.zone);
       const availability = String(body.availability || "Available").trim();
-      const coordinates = ZONE_COORDINATES[zone];
+      const location = await resolveVolunteerLocation(body.currentLocationLabel, zone);
       const volunteer = {
         id: nextVolunteerId++,
         name: String(body.name).trim(),
@@ -1021,7 +1410,9 @@ async function handleApi(req, res) {
         phone: String(body.phone).replace(/\s+/g, ""),
         skills: normalizeVolunteerSkills(body.skills),
         zone,
-        currentLocationLabel: String(body.currentLocationLabel).trim(),
+        currentLocationLabel: location.currentLocationLabel,
+        postalCode: location.postalCode,
+        locationVerified: location.locationVerified,
         availability,
         status: volunteerBaseStatus(availability),
         assignedIncidentId: "",
@@ -1029,13 +1420,13 @@ async function handleApi(req, res) {
         assignedTask: "",
         notificationMessage: "Simulated notification: Volunteer profile created successfully.",
         deploymentResponsePending: false,
-        lat: coordinates.lat,
-        lng: coordinates.lng
+        lat: location.lat,
+        lng: location.lng
       };
       volunteerProfiles.push(volunteer);
       sendJson(res, 201, serializeVolunteer(volunteer));
     } catch (error) {
-      sendJson(res, 400, { error: "Invalid request payload." });
+      sendJson(res, error.statusCode || 400, { error: error.message || "Invalid request payload." });
     }
     return;
   }
@@ -1063,15 +1454,28 @@ async function handleApi(req, res) {
       }
 
       const nextZone = normalizeZone(body.zone || volunteer.zone);
-      const coordinates = ZONE_COORDINATES[nextZone];
+      const nextLocationLabel = String(body.currentLocationLabel || volunteer.currentLocationLabel).trim();
+      const locationChanged = body.currentLocationLabel !== undefined && nextLocationLabel !== volunteer.currentLocationLabel;
+      const zoneChanged = nextZone !== volunteer.zone;
+      const location = locationChanged || zoneChanged
+        ? await resolveVolunteerLocation(nextLocationLabel, nextZone)
+        : {
+            currentLocationLabel: volunteer.currentLocationLabel,
+            postalCode: volunteer.postalCode || "",
+            locationVerified: Boolean(volunteer.locationVerified),
+            lat: volunteer.lat,
+            lng: volunteer.lng
+          };
       volunteer.name = String(body.name || volunteer.name).trim();
       volunteer.phone = String(body.phone || volunteer.phone).replace(/\s+/g, "");
       volunteer.skills = normalizeVolunteerSkills(body.skills ?? volunteer.skills);
       volunteer.zone = nextZone;
-      volunteer.currentLocationLabel = String(body.currentLocationLabel || volunteer.currentLocationLabel).trim();
+      volunteer.currentLocationLabel = location.currentLocationLabel;
+      volunteer.postalCode = location.postalCode;
+      volunteer.locationVerified = location.locationVerified;
       volunteer.availability = nextAvailability;
-      volunteer.lat = coordinates.lat;
-      volunteer.lng = coordinates.lng;
+      volunteer.lat = location.lat;
+      volunteer.lng = location.lng;
       if (!volunteerActiveAssignment(volunteer) || volunteer.status === "Completed") {
         volunteer.status = volunteerBaseStatus(nextAvailability);
         if (volunteer.status === "Off Duty") {
@@ -1084,7 +1488,7 @@ async function handleApi(req, res) {
       volunteer.notificationMessage = "Simulated notification: Volunteer profile updated.";
       sendJson(res, 200, serializeVolunteer(volunteer));
     } catch (error) {
-      sendJson(res, 400, { error: "Invalid request payload." });
+      sendJson(res, error.statusCode || 400, { error: error.message || "Invalid request payload." });
     }
     return;
   }
@@ -1102,6 +1506,8 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && /^\/api\/volunteers\/\d+\/deploy$/.test(req.url)) {
+    const session = requireProfessionalSession(req, res, "deploy volunteers");
+    if (!session) return;
     try {
       const volunteerId = Number(req.url.split("/")[3]);
       const volunteer = volunteerProfiles.find((item) => item.id === volunteerId);
@@ -1116,6 +1522,10 @@ async function handleApi(req, res) {
         sendJson(res, 404, { error: "Incident scenario not found." });
         return;
       }
+      if (scenario.status === "Completed") {
+        sendJson(res, 409, { error: "Completed incidents cannot receive new volunteer deployments." });
+        return;
+      }
       if (volunteer.availability !== "Available" || volunteer.status !== "Available") {
         sendJson(res, 409, { error: "Volunteer must be Available before deployment." });
         return;
@@ -1125,7 +1535,7 @@ async function handleApi(req, res) {
       volunteer.assignedIncidentName = scenario.name;
       volunteer.assignedTask = deploymentTaskForScenario(scenario);
       volunteer.status = "Assigned";
-      volunteer.deploymentResponsePending = true;
+      volunteer.deploymentResponsePending = false;
       volunteer.notificationMessage = `Simulated notification: ${volunteer.name}, you have been selected for ${scenario.name}. Task: ${volunteer.assignedTask}`;
       sendJson(res, 200, serializeVolunteer(volunteer));
     } catch (error) {
@@ -1172,6 +1582,8 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && /^\/api\/volunteers\/\d+\/status$/.test(req.url)) {
+    const session = requireProfessionalSession(req, res, "update volunteer dispatch status");
+    if (!session) return;
     try {
       const volunteerId = Number(req.url.split("/")[3]);
       const volunteer = volunteerProfiles.find((item) => item.id === volunteerId);
@@ -1190,7 +1602,15 @@ async function handleApi(req, res) {
         sendJson(res, 409, { error: "Volunteer must be deployed before using this status." });
         return;
       }
+      if (nextStatus === "Completed") {
+        const assignedScenario = simulationScenarios.find((item) => item.id === volunteer.assignedIncidentId);
+        if (!assignedScenario || assignedScenario.status !== "Completed") {
+          sendJson(res, 409, { error: "Complete the whole incident before marking assigned volunteers as Completed." });
+          return;
+        }
+      }
 
+      const previousIncidentName = volunteer.assignedIncidentName;
       volunteer.status = nextStatus;
       volunteer.deploymentResponsePending = false;
       if (nextStatus === "Available") {
@@ -1206,7 +1626,17 @@ async function handleApi(req, res) {
         volunteer.assignedTask = "";
       }
       if (nextStatus === "Completed") {
-        volunteer.notificationMessage = `Simulated notification: ${volunteer.name} marked the deployment as completed.`;
+        volunteer.notificationMessage = `Simulated notification: ${volunteer.assignedIncidentName} has ended. Your deployment is complete.`;
+      } else if (nextStatus === "Assigned") {
+        volunteer.notificationMessage = `Simulated notification: You are assigned to ${volunteer.assignedIncidentName}. Review the task and prepare to depart.`;
+      } else if (nextStatus === "En Route") {
+        volunteer.notificationMessage = `Simulated notification: Your status is En Route to ${volunteer.assignedIncidentName}. Travel safely and notify the coordinator if delayed.`;
+      } else if (nextStatus === "On Site") {
+        volunteer.notificationMessage = `Simulated notification: You are marked On Site at ${volunteer.assignedIncidentName}. Check in and begin the assigned task.`;
+      } else if (nextStatus === "Available" && previousIncidentName) {
+        volunteer.notificationMessage = `Simulated notification: Your deployment to ${previousIncidentName} has been recalled. Do not proceed; remain available for further instructions.`;
+      } else if (nextStatus === "Off Duty") {
+        volunteer.notificationMessage = "Simulated notification: You are now unavailable and will not receive new dispatches.";
       } else {
         volunteer.notificationMessage = `Simulated notification: Volunteer status changed to ${nextStatus}.`;
       }
@@ -1230,9 +1660,23 @@ async function handleApi(req, res) {
   if (req.method === "GET" && req.url.startsWith("/api/dengue-clusters")) {
     try {
       const geojson = await cached("dengue-clusters", 30 * 60_000, fetchDengueClusters);
+      if (!geojson?.features?.length) {
+        const demoData = loadEvacuationDemoData();
+        sendJson(res, 200, {
+          geojson: demoData.dengueGeoJson,
+          fetchedAt: new Date().toISOString(),
+          source: "demo-fallback"
+        });
+        return;
+      }
       sendJson(res, 200, { geojson, fetchedAt: new Date().toISOString() });
     } catch (error) {
-      sendJson(res, 502, { error: "Unable to reach the dengue clusters service." });
+      const demoData = loadEvacuationDemoData();
+      sendJson(res, 200, {
+        geojson: demoData.dengueGeoJson,
+        fetchedAt: new Date().toISOString(),
+        source: "demo-fallback"
+      });
     }
     return;
   }
@@ -1271,18 +1715,32 @@ async function handleApi(req, res) {
 
       let baseline = null;
       let rerouted = null;
+      let rerouteStatus = "not-needed";
       const demo = requestedDemo || !ORS_API_KEY;
 
       if (demo) {
         const demoData = loadEvacuationDemoData();
         baseline = demoData.baselineRoute;
         rerouted = demoData.reroutedRoute;
+        rerouteStatus = "available";
       } else {
         baseline = await fetchOrsRoute(start, end, null);
         if (avoidPolygons.coordinates.length) {
-          const reroutedRoute = await fetchOrsRoute(start, end, avoidPolygons);
-          if (!routeCoordsMatch(reroutedRoute, baseline)) {
-            rerouted = reroutedRoute;
+          try {
+            const reroutedRoute = await fetchOrsRoute(start, end, avoidPolygons);
+            if (!routeCoordsMatch(reroutedRoute, baseline)) {
+              rerouted = reroutedRoute;
+              rerouteStatus = "available";
+            } else {
+              rerouteStatus = "same-route";
+            }
+          } catch (error) {
+            rerouteStatus = "unavailable";
+            logger.logError("evacuation.rerouting", error, {
+              method: req.method,
+              url: req.url,
+              statusCode: 502
+            });
           }
         }
       }
@@ -1293,6 +1751,7 @@ async function handleApi(req, res) {
         hazards,
         avoid,
         demo,
+        rerouteStatus,
         fetchedAt: new Date().toISOString()
       });
     } catch (error) {
@@ -1309,10 +1768,7 @@ async function handleApi(req, res) {
     }
     try {
       const Incident = require('./models/Incident');
-      const incidents = await Incident.find({
-        lat: { $type: 'number' },
-        lng: { $type: 'number' }
-      }).sort({ createdAt: -1 }).limit(200).lean();
+      const incidents = await Incident.find().sort({ createdAt: -1 }).limit(200).lean();
       sendJson(res, 200, {
         count: incidents.length,
         incidents: incidents.map((incident) => ({
@@ -1325,7 +1781,10 @@ async function handleApi(req, res) {
           lat: incident.lat,
           lng: incident.lng,
           note: incident.note,
-          createdAt: incident.createdAt
+          reporter: incident.reporter,
+          reporterRole: incident.reporterRole,
+          createdAt: incident.createdAt,
+          updatedAt: incident.updatedAt
         }))
       });
     } catch (error) {
@@ -1344,37 +1803,161 @@ async function handleApi(req, res) {
         return;
       }
       const Incident = require('./models/Incident');
-      if (body.postcode && !body.lat) {
-        try {
-          const omUrl = `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(body.postcode)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
-          const omResp = await fetch(omUrl);
-          const omData = await omResp.json();
-          const first = omData.results?.[0];
-          if (first) {
-            body.lat = parseFloat(first.LATITUDE);
-            body.lng = parseFloat(first.LONGITUDE);
-            if (!body.location) body.location = first.ADDRESS || first.SEARCHVAL || body.postcode;
-          }
-        } catch (_) { /* proceed without coords if lookup fails */ }
+      const type = String(body.type || "").trim();
+      const severity = String(body.severity || "").trim();
+      const postalCode = String(body.postalCode || body.postcode || "").trim();
+      const note = String(body.note || "").trim();
+      const submittedLat = Number(body.lat);
+      const submittedLng = Number(body.lng);
+      const hasSubmittedCoordinates =
+        body.lat !== undefined &&
+        body.lat !== "" &&
+        body.lng !== undefined &&
+        body.lng !== "" &&
+        Number.isFinite(submittedLat) &&
+        Number.isFinite(submittedLng);
+      const allowedSeverities = new Set(["Critical", "High", "Medium", "Low"]);
+
+      if (!type) {
+        sendJson(res, 400, { error: "Incident type is required." });
+        return;
       }
+      if (!allowedSeverities.has(severity)) {
+        sendJson(res, 400, { error: "Select a valid incident severity." });
+        return;
+      }
+      let locationResult;
+      if (postalCode) {
+        if (!/^\d{6}$/.test(postalCode)) {
+          sendJson(res, 400, { error: "Enter a valid 6-digit Singapore postal code." });
+          return;
+        }
+        try {
+          const results = await fetchOneMapSearch(postalCode);
+          locationResult = results.find((result) => result.postalCode === postalCode) || results[0];
+        } catch (error) {
+          logger.logError("incidents.geocode", error, { postalCode });
+          sendJson(res, 502, { error: "Unable to verify that postal code with OneMap right now." });
+          return;
+        }
+      } else if (hasSubmittedCoordinates) {
+        locationResult = {
+          name: String(body.areaDesc || body.location || "Reported incident").trim(),
+          address: String(body.location || body.areaDesc || "Reported incident").trim(),
+          lat: submittedLat,
+          lng: submittedLng
+        };
+      } else {
+        sendJson(res, 400, { error: "Enter a valid 6-digit Singapore postal code." });
+        return;
+      }
+      if (!locationResult) {
+        sendJson(res, 400, { error: "No Singapore location was found for that postal code." });
+        return;
+      }
+
+      const reporterSession = getUserSession(req);
       const inc = new Incident({
-        reporter: body.reporter || 'anonymous',
-        reporterRole: body.reporterRole || 'public',
-        type: body.type || 'flood',
-        severity: body.severity || 'Low',
+        reporter: reporterSession?.name || reporterSession?.email || 'anonymous',
+        reporterRole: reporterSession?.role === 'professional' ? 'professional' : 'public',
+        type,
+        severity,
         value: body.value || 20,
-        areaDesc: body.areaDesc || body.location || '',
-        location: body.location || '',
-        lat: body.lat,
-        lng: body.lng,
-        note: body.note || ''
+        areaDesc: locationResult.name || locationResult.address || postalCode,
+        location: locationResult.address || locationResult.name || postalCode,
+        lat: locationResult.lat,
+        lng: locationResult.lng,
+        note,
+        status: 'active'
       });
       console.log('Saving incident:', JSON.stringify(inc.toObject()));
       await inc.save();
-      sendJson(res, 201, { incidentId: inc._id.toString(), message: 'Incident recorded' });
+      sendJson(res, 201, {
+        message: 'Incident recorded',
+        incident: {
+          id: inc._id.toString(),
+          type: inc.type,
+          severity: inc.severity,
+          status: inc.status,
+          areaDesc: inc.areaDesc,
+          location: inc.location,
+          lat: inc.lat,
+          lng: inc.lng,
+          note: inc.note,
+          reporter: inc.reporter,
+          reporterRole: inc.reporterRole,
+          createdAt: inc.createdAt,
+          updatedAt: inc.updatedAt
+        }
+      });
     } catch (error) {
       logger.logError("incidents.create", error, { method: req.method, url: req.url, statusCode: 500, validationErrors: error.errors });
       sendJson(res, 500, { error: error.message || 'Failed to record incident' });
+    }
+    return;
+  }
+
+  const incidentUpdateMatch = req.url.match(/^\/api\/incidents\/([a-f\d]{24})$/i);
+  if (req.method === 'PATCH' && incidentUpdateMatch) {
+    const session = getUserSession(req);
+    if (!session) {
+      sendJson(res, 401, { error: 'Professional sign-in required.' });
+      return;
+    }
+    if (session.role !== 'professional') {
+      sendJson(res, 403, { error: 'Only professional accounts can edit incidents.' });
+      return;
+    }
+    if (!mongoConnected) {
+      sendJson(res, 503, { error: 'MongoDB not connected' });
+      return;
+    }
+
+    try {
+      const body = await parseBody(req);
+      const status = String(body.status || '').trim().toLowerCase();
+      const allowedStatuses = new Set(['active', 'monitoring', 'contained', 'resolved']);
+      if (!allowedStatuses.has(status)) {
+        sendJson(res, 400, { error: 'Select a valid incident status.' });
+        return;
+      }
+
+      const Incident = require('./models/Incident');
+      const incident = await Incident.findByIdAndUpdate(
+        incidentUpdateMatch[1],
+        { status },
+        { new: true, runValidators: true }
+      ).lean();
+      if (!incident) {
+        sendJson(res, 404, { error: 'Incident not found.' });
+        return;
+      }
+
+      sendJson(res, 200, {
+        message: 'Incident updated.',
+        incident: {
+          id: incident._id.toString(),
+          type: incident.type,
+          severity: incident.severity,
+          status: incident.status,
+          areaDesc: incident.areaDesc,
+          location: incident.location,
+          lat: incident.lat,
+          lng: incident.lng,
+          note: incident.note,
+          reporter: incident.reporter,
+          reporterRole: incident.reporterRole,
+          createdAt: incident.createdAt,
+          updatedAt: incident.updatedAt
+        }
+      });
+    } catch (error) {
+      logger.logError('incidents.update', error, {
+        method: req.method,
+        url: req.url,
+        statusCode: 500
+      });
+      sendJson(res, 500, { error: 'Failed to update incident.' });
     }
     return;
   }
@@ -1455,10 +2038,92 @@ async function handleApi(req, res) {
         sendJson(res, 400, { error: "Please enter a valid email address." });
         return;
       }
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: GENERIC_ERROR_MESSAGE });
+        return;
+      }
+      const user = await User.findOne({ email: normalizeEmail(body.email) }).select("securityQuestion").lean();
+      const securityQuestion = user?.securityQuestion && SECURITY_QUESTIONS[user.securityQuestion]
+        ? user.securityQuestion
+        : "memorable_place";
       sendJson(res, 200, {
-        message: "If an account exists for this email, password reset instructions will be sent."
+        securityQuestion,
+        question: SECURITY_QUESTIONS[securityQuestion]
       });
     } catch (error) {
+      sendJson(res, 500, { error: GENERIC_ERROR_MESSAGE });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/auth/reset-password") {
+    try {
+      const body = await parseBody(req);
+      if (hasMissingRequired(body, ["email", "securityAnswer", "password", "confirmPassword"])) {
+        sendJson(res, 400, { error: "Please fill in all required fields." });
+        return;
+      }
+      if (!validEmail(body.email)) {
+        sendJson(res, 400, { error: "Please enter a valid email address." });
+        return;
+      }
+      if (!validSecurityAnswer(body.securityAnswer)) {
+        sendJson(res, 400, { error: "Enter your security answer." });
+        return;
+      }
+      if (!isStrongPassword(body.password)) {
+        sendJson(res, 400, { error: PASSWORD_REQUIREMENTS_MESSAGE });
+        return;
+      }
+      if (body.password !== body.confirmPassword) {
+        sendJson(res, 400, { error: "Passwords do not match." });
+        return;
+      }
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: GENERIC_ERROR_MESSAGE });
+        return;
+      }
+
+      const user = await User.findOne({ email: normalizeEmail(body.email) })
+        .select("+securityAnswerHash +passwordResetAttempts +passwordResetExpiresAt");
+      if (!user?.securityAnswerHash) {
+        sendJson(res, 401, { error: "The email or security answer is incorrect." });
+        return;
+      }
+      if ((user.passwordResetAttempts || 0) >= 5) {
+        if (user.passwordResetExpiresAt && user.passwordResetExpiresAt.getTime() > Date.now()) {
+          sendJson(res, 429, { error: "Too many incorrect security answers. Please try again in 15 minutes." });
+          return;
+        }
+        user.passwordResetAttempts = 0;
+        user.passwordResetExpiresAt = undefined;
+      }
+
+      const answerOk = await verifyPassword(securityAnswerDigest(body.securityAnswer), user.securityAnswerHash);
+      if (!answerOk) {
+        user.passwordResetAttempts = (user.passwordResetAttempts || 0) + 1;
+        if (user.passwordResetAttempts >= 5) {
+          user.passwordResetExpiresAt = new Date(Date.now() + 15 * 60_000);
+        }
+        await user.save();
+        sendJson(res, 401, { error: "The email or security answer is incorrect." });
+        return;
+      }
+      if (await verifyPassword(body.password, user.passwordHash)) {
+        sendJson(res, 409, { error: "Your new password must be different from your current password." });
+        return;
+      }
+
+      user.passwordHash = await hashPassword(body.password);
+      user.passwordResetAttempts = 0;
+      user.passwordResetExpiresAt = undefined;
+      user.failedLoginAttempts = 0;
+      user.loginLockedUntil = undefined;
+      await user.save();
+      invalidateUserSessions(user._id);
+      sendJson(res, 200, { message: "Password changed successfully. Sign in with your new password." });
+    } catch (error) {
+      logger.logError("auth.resetPassword", error, { method: req.method, url: req.url, statusCode: 500 });
       sendJson(res, 500, { error: GENERIC_ERROR_MESSAGE });
     }
     return;
@@ -1496,6 +2161,8 @@ async function handleApi(req, res) {
         name: String(body.name).trim(),
         email,
         passwordHash: await hashPassword(body.password),
+        securityQuestion: String(body.securityQuestion).trim(),
+        securityAnswerHash: await hashPassword(securityAnswerDigest(body.securityAnswer)),
         role: "professional",
         status: "approved",
         agency,
@@ -1590,6 +2257,42 @@ async function handleApi(req, res) {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/api/auth/volunteer") {
+    try {
+      const body = await parseBody(req);
+      const errors = validatePublicLogin(body);
+      if (Object.keys(errors).length) {
+        sendJson(res, 400, { error: "Unable to sign in.", fields: errors });
+        return;
+      }
+
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: GENERIC_ERROR_MESSAGE });
+        return;
+      }
+      const email = normalizeEmail(body.email);
+      const authentication = await authenticateUser(req, "volunteer", email, body.password);
+      if (!authentication.user) {
+        sendJson(res, authentication.statusCode, { error: authentication.error });
+        return;
+      }
+      const user = authentication.user;
+      user.role = "volunteer";
+      user.isVolunteer = true;
+      user.lastLoginAt = new Date();
+      await user.save();
+
+      sendJson(res, 200, {
+        message: "Volunteer access approved.",
+        session: createUserSession(res, req, user),
+        redirectTo: "/#/dashboard"
+      });
+    } catch (error) {
+      sendJson(res, 500, { error: GENERIC_ERROR_MESSAGE });
+    }
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/api/auth/volunteer/signup") {
     try {
       const body = await parseBody(req);
@@ -1622,7 +2325,9 @@ async function handleApi(req, res) {
         name: String(body.name).trim(),
         email,
         passwordHash: await hashPassword(body.password),
-        role: "public",
+        securityQuestion: String(body.securityQuestion).trim(),
+        securityAnswerHash: await hashPassword(securityAnswerDigest(body.securityAnswer)),
+        role: "volunteer",
         status: "approved",
         isVolunteer: true,
         phone: String(body.phone).replace(/\s+/g, ""),

@@ -39,8 +39,13 @@ async function checkDatabase() {
   ] = await Promise.all([
     User.countDocuments({ role: "professional", status: "approved" }),
     User.countDocuments({ role: "professional", status: "pending" }),
-    User.countDocuments({ role: "public" }),
-    User.countDocuments({ role: "public", isVolunteer: true }),
+    User.countDocuments({ role: "public", isVolunteer: { $ne: true } }),
+    User.countDocuments({
+      $or: [
+        { role: "volunteer" },
+        { role: "public", isVolunteer: true }
+      ]
+    }),
     User.find({
       $or: [
         { passwordHash: { $exists: false } },

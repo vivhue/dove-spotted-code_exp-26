@@ -1,5 +1,6 @@
 const app = document.querySelector("#app");
 const OPS_BRAND_SUBTITLE = "AI Emergency Command Centre";
+const DASHBOARD_AI_PREDICTION_HASH = "#/dashboard/ai-prediction";
 
 const routes = {
   "": renderLanding,
@@ -7,19 +8,22 @@ const routes = {
   "#/login": renderRoleSelection,
   "#/signup": renderSignupSelection,
   "#/login/professional": renderProfessionalLogin,
+  "#/login/volunteer": renderVolunteerLogin,
   "#/signup/professional": renderProfessionalSignup,
-  "#/login/public": renderPublicLogin,
+  "#/login/public": renderVolunteerLogin,
   "#/signup/volunteer": renderVolunteerSignup,
   "#/forgot-password": renderForgotPassword,
   "#/public-status": renderPublicEmergencyStatus,
   "#/dashboard": renderDashboard,
-  "#/incident-simulator": renderIncidentSimulatorPage,
+  [DASHBOARD_AI_PREDICTION_HASH]: renderDashboard,
+  "#/incidents": renderIncidentsPage,
+  "#/new-incident": renderIncidentReportPage,
+  "#/incident-simulator": renderIncidentReportPage,
   "#/emergency-spaces": renderEmergencySpacesPage,
   "#/volunteer-dispatch": renderVolunteerDispatchPage,
   "#/flood-map": renderFloodMap,
   "#/evacuation-routing": renderEvacuationRouting,
-  "#/risk-prediction": renderRiskPrediction,
-  "#/analytics": renderAnalytics
+  "#/risk-prediction": renderRiskPrediction
 };
 
 const capabilities = [
@@ -33,9 +37,16 @@ let emergencySpacesState = [];
 let emergencySpacesLoaded = false;
 let emergencySpacesSeed = [];
 let emergencySpacesSession = null;
+let emergencySpacesFilter = "all";
+let emergencySpacesUserLocation = null;
+let emergencyHospitalsState = [];
 let simulationScenarios = [];
 let opsMenuKeydownHandler = null;
 let opsHeaderClockTimer = null;
+let dashboardPreviewIncidents = [];
+let dashboardPreviewMap = null;
+let dashboardPreviewTimer = null;
+let volunteerDispatchTimer = null;
 
 const DEFAULT_DASHBOARD_STATS = {
   activeIncidents: 5,
@@ -46,6 +57,12 @@ const DEFAULT_DASHBOARD_STATS = {
 
 const DEFAULT_SIMULATION_BRIEFING = "Standby. Run a scenario to generate a rule-based operations briefing.";
 const PASSWORD_REQUIREMENTS_MESSAGE = "Password must contain at least 8 characters, 1 uppercase letter, 1 number, and 1 special character.";
+const SECURITY_QUESTION_OPTIONS = [
+  { value: "first_school", label: "What was the name of your first school?" },
+  { value: "childhood_nickname", label: "What was your childhood nickname?" },
+  { value: "memorable_place", label: "What place is most memorable to you?" },
+  { value: "first_job", label: "What was your first job or volunteer role?" }
+];
 const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again later.";
 const PROFESSIONAL_AGENCY_DOMAINS = {
   SCDF: ["scdf.gov.sg"],
@@ -64,7 +81,6 @@ const DEFAULT_LIVE_ACTIVITY = [
   "<strong>12:51</strong> Shelter activation recommended",
   "<strong>12:53</strong> NUH occupancy exceeded threshold"
 ];
-
 const simulationState = {
   activeScenario: null,
   selectedScenarioId: "",
@@ -88,12 +104,14 @@ const volunteerDispatchState = {
     availability: "",
     status: ""
   },
-  smartMatchActive: false,
   smartMatchScores: new Map()
 };
 
-const VOLUNTEER_AVAILABILITY = ["Available", "Off Duty"];
 const VOLUNTEER_STATUSES = ["Available", "Assigned", "En Route", "On Site", "Completed", "Off Duty"];
+const VOLUNTEER_SELF_AVAILABILITY = [
+  { value: "Available", label: "Available" },
+  { value: "Off Duty", label: "Unavailable" }
+];
 const DISPATCH_ZONES = ["Jurong West", "Jurong East", "Bedok", "Tampines", "Changi", "Clementi", "Bukit Timah"];
 const DISPATCH_ZONE_COORDS = {
   "Jurong West": [1.3507, 103.7004],
@@ -106,14 +124,19 @@ const DISPATCH_ZONE_COORDS = {
 };
 
 const SINGAPORE_HOSPITALS = [
-  { name: "National University Hospital", lat: 1.2948, lng: 103.7836, zone: "Clementi", beds: 1200 },
-  { name: "Ng Teng Fong General Hospital", lat: 1.3334, lng: 103.7437, zone: "Jurong East", beds: 700 },
-  { name: "Singapore General Hospital", lat: 1.2796, lng: 103.8352, zone: "Central", beds: 1800 },
-  { name: "Tan Tock Seng Hospital", lat: 1.3215, lng: 103.8465, zone: "Central", beds: 1500 },
-  { name: "Changi General Hospital", lat: 1.3402, lng: 103.9490, zone: "Changi", beds: 820 },
-  { name: "KK Women's and Children's Hospital", lat: 1.3094, lng: 103.8467, zone: "Central", beds: 800 },
-  { name: "Sengkang General Hospital", lat: 1.3906, lng: 103.8935, zone: "Tampines", beds: 1000 },
-  { name: "Khoo Teck Puat Hospital", lat: 1.4241, lng: 103.8371, zone: "Yishun", beds: 550 }
+  { id: "hospital-nuh", name: "National University Hospital", address: "5 Lower Kent Ridge Rd", lat: 1.2948, lng: 103.7836, zone: "Clementi", beds: 1200, occupancy: 860 },
+  { id: "hospital-ntfgh", name: "Ng Teng Fong General Hospital", address: "1 Jurong East St 21", lat: 1.3334, lng: 103.7437, zone: "Jurong East", beds: 700, occupancy: 490 },
+  { id: "hospital-sgh", name: "Singapore General Hospital", address: "Outram Rd", lat: 1.2796, lng: 103.8352, zone: "Central", beds: 1800, occupancy: 1290 },
+  { id: "hospital-ttsh", name: "Tan Tock Seng Hospital", address: "11 Jalan Tan Tock Seng", lat: 1.3215, lng: 103.8465, zone: "Central", beds: 1500, occupancy: 1070 },
+  { id: "hospital-cgh", name: "Changi General Hospital", address: "2 Simei St 3", lat: 1.3402, lng: 103.9490, zone: "Changi", beds: 820, occupancy: 590 },
+  { id: "hospital-kkh", name: "KK Women's and Children's Hospital", address: "100 Bukit Timah Rd", lat: 1.3094, lng: 103.8467, zone: "Central", beds: 800, occupancy: 560 },
+  { id: "hospital-skh", name: "Sengkang General Hospital", address: "110 Sengkang E Way", lat: 1.3906, lng: 103.8935, zone: "Tampines", beds: 1000, occupancy: 710 },
+  { id: "hospital-ktph", name: "Khoo Teck Puat Hospital", address: "90 Yishun Central", lat: 1.4241, lng: 103.8371, zone: "Yishun", beds: 550, occupancy: 390 }
+];
+
+const EMERGENCY_SPACE_TYPES = [
+  { value: "Temporary Shelter", label: "Shelter" },
+  { value: "Hospital", label: "Hospital" }
 ];
 
 function shieldIcon() {
@@ -138,6 +161,7 @@ function icon(name) {
     logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />',
     mapPin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0z" /><circle cx="12" cy="10" r="2.5" />',
     medical: '<path d="M8 6V4h8v2M6 8h12v12H6zM12 11v6M9 14h6" />',
+    report: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M12 12v6M9 15h6" />',
     shield: '<path d="M12 3l8 3v6c0 5-3.3 8.2-8 9-4.7-.8-8-4-8-9V6l8-3z" />',
     truck: '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7zM7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4M18 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4" />',
   };
@@ -310,7 +334,6 @@ function renderPublicEmergencyStatus() {
             <div class="public-status-buttons">
               <a class="primary-button public-map-button" href="#/flood-map">${icon("mapPin")} View live flood map</a>
               <a class="secondary-button public-map-button" href="#/risk-prediction">${icon("activity")} Risk Prediction</a>
-              <a class="secondary-button public-map-button" href="#/analytics">${icon("barChart")} Analytics</a>
               <a class="secondary-button public-map-button" href="#/evacuation-routing">${icon("arrowRight")} Evacuation Routing</a>
               <a class="secondary-button public-guidance-button" href="https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/civil-defence-emergency--handbook---interactive-tools" target="_blank" rel="noopener noreferrer" data-public-guidance-link>${icon("arrowRight")} <span data-public-guidance-label>SCDF emergency guidance</span></a>
             </div>
@@ -479,12 +502,12 @@ function renderRoleSelection() {
               action: "Continue as Professional"
             })}
             ${roleCard({
-              href: "#/login/public",
+              href: "#/login/volunteer",
               iconName: "users",
-              title: "Public Access",
-              subtitle: "For residents and community members",
-              items: ["Report incidents", "Offer volunteer support", "Receive alerts"],
-              action: "Continue as Public"
+              title: "Volunteer Access",
+              subtitle: "For registered community volunteers",
+              items: ["Manage availability", "Receive dispatch tasks", "View assigned response work"],
+              action: "Continue as Volunteer"
             })}
           </div>
         </section>
@@ -615,6 +638,15 @@ function renderProfessionalSignup() {
               <label>Confirm password
                 <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password" required minlength="8" /></span>
               </label>
+              <label>Security question
+                <select name="securityQuestion" required>
+                  <option value="">Select a question</option>
+                  ${SECURITY_QUESTION_OPTIONS.map((option) => `<option value="${option.value}">${option.label}</option>`).join("")}
+                </select>
+              </label>
+              <label>Security answer
+                <input name="securityAnswer" type="password" placeholder="Answer you will remember" autocomplete="off" required minlength="2" maxlength="120" />
+              </label>
             </div>
             <p class="note">${icon("info")} ${PASSWORD_REQUIREMENTS_MESSAGE}</p>
             <p class="note">${icon("info")} An official email domain is required, but it does not grant access automatically. An administrator must approve the account.</p>
@@ -689,16 +721,17 @@ function requiredFieldsPresent(data, fields) {
 
 function validateSignupData(type, data) {
   if (type === "professional") {
-    if (!requiredFieldsPresent(data, ["name", "email", "agency", "roleTitle", "password", "confirmPassword"])) return "Please fill in all required fields.";
+    if (!requiredFieldsPresent(data, ["name", "email", "agency", "roleTitle", "password", "confirmPassword", "securityQuestion", "securityAnswer"])) return "Please fill in all required fields.";
     if (!validEmailAddress(data.email)) return "Please enter a valid email address.";
     if (!professionalEmailAllowed(data.email, data.agency)) return "Please use an approved professional email domain.";
   } else {
-    if (!requiredFieldsPresent(data, ["name", "email", "phone", "password", "confirmPassword", "availability", "acceptTerms"])) return "Please fill in all required fields.";
+    if (!requiredFieldsPresent(data, ["name", "email", "phone", "password", "confirmPassword", "securityQuestion", "securityAnswer", "availability", "acceptTerms"])) return "Please fill in all required fields.";
     if (!validEmailAddress(data.email)) return "Please enter a valid email address.";
     if (!personalEmailAllowed(data.email)) return "Please use a valid personal email address.";
   }
   if (!strongPassword(data.password)) return PASSWORD_REQUIREMENTS_MESSAGE;
   if (data.password !== data.confirmPassword) return "Passwords do not match.";
+  if (String(data.securityAnswer || "").trim().length < 2) return "Security answer must contain at least 2 characters.";
   return "";
 }
 
@@ -753,23 +786,23 @@ async function submitProfessionalSignup(event) {
   }
 }
 
-function renderPublicLogin() {
+function renderVolunteerLogin() {
   app.innerHTML = `
     <div class="page auth-page">
       ${header({ backHref: "#/login" })}
       <main class="center-stage">
-        <section class="login-panel" aria-labelledby="public-heading">
+        <section class="login-panel" aria-labelledby="volunteer-login-heading">
           <div class="auth-heading">
-            <h1 id="public-heading">Public Login</h1>
-            <p>Sign in to report incidents, receive alerts, or offer support</p>
+            <h1 id="volunteer-login-heading">Volunteer Login</h1>
+            <p>Sign in with your registered volunteer account</p>
           </div>
-          <form class="login-form" data-role="public" novalidate>
-            <label>Email<input name="email" type="email" placeholder="irname@example.com" autocomplete="email" required /></label>
+          <form class="login-form" data-role="volunteer" novalidate>
+            <label>Email<input name="email" type="email" placeholder="name@example.com" autocomplete="email" required /></label>
             <label>Password
               <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required /></span>
             </label>
-            <button class="form-button" type="submit">Sign In With Email</button>
-            <p class="signup-line">Volunteer accounts sign in here too. <a href="#/signup/volunteer">Create a volunteer account</a></p>
+            <button class="form-button" type="submit">Sign In as Volunteer</button>
+            <p class="signup-line">New volunteer? <a href="#/signup/volunteer">Create a volunteer account</a></p>
             <p class="signup-line"><a href="#/forgot-password">Forgot password?</a></p>
             <p class="form-status" role="status"></p>
           </form>
@@ -788,12 +821,29 @@ function renderForgotPassword() {
         <section class="login-panel" aria-labelledby="forgot-password-heading">
           <div class="auth-heading">
             <h1 id="forgot-password-heading">Forgot Password</h1>
-            <p>Enter your email to request password reset instructions.</p>
+            <p>Verify your saved security question to choose a new password.</p>
           </div>
           <form class="login-form" data-forgot-password novalidate>
             <label>Email<input name="email" type="email" placeholder="name@example.com" autocomplete="email" required /></label>
-            <button class="form-button" type="submit">Request Password Reset</button>
+            <button class="form-button" type="submit">Continue</button>
             <p class="signup-line"><a href="#/login">Back to sign in</a></p>
+            <p class="form-status" role="status"></p>
+          </form>
+          <form class="login-form" data-reset-password novalidate hidden>
+            <input name="email" type="hidden" />
+            <p class="security-question-prompt" data-security-question></p>
+            <label>Security answer
+              <input name="securityAnswer" type="password" autocomplete="off" required maxlength="120" />
+            </label>
+            <label>New password
+              <span class="input-with-icon">${icon("lock")}<input name="password" type="password" autocomplete="new-password" required minlength="8" /></span>
+            </label>
+            <label>Confirm new password
+              <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8" /></span>
+            </label>
+            <p class="note">${icon("info")} ${PASSWORD_REQUIREMENTS_MESSAGE}</p>
+            <button class="form-button" type="submit">Change Password</button>
+            <button class="secondary-button" type="button" data-reset-password-back>Use a different email</button>
             <p class="form-status" role="status"></p>
           </form>
         </section>
@@ -802,6 +852,11 @@ function renderForgotPassword() {
   `;
 
   document.querySelector("[data-forgot-password]").addEventListener("submit", submitForgotPassword);
+  document.querySelector("[data-reset-password]").addEventListener("submit", submitPasswordReset);
+  document.querySelector("[data-reset-password-back]").addEventListener("click", () => {
+    document.querySelector("[data-reset-password]").hidden = true;
+    document.querySelector("[data-forgot-password]").hidden = false;
+  });
 }
 
 async function submitForgotPassword(event) {
@@ -820,7 +875,7 @@ async function submitForgotPassword(event) {
     return;
   }
 
-  status.textContent = "Requesting password reset...";
+  status.textContent = "Loading your security question...";
   status.className = "form-status";
   button.disabled = true;
 
@@ -836,8 +891,12 @@ async function submitForgotPassword(event) {
       status.classList.add("error");
       return;
     }
-    status.textContent = result.message;
-    status.classList.add("success");
+    const resetForm = document.querySelector("[data-reset-password]");
+    resetForm.elements.email.value = normalizeEmailAddress(data.email);
+    resetForm.querySelector("[data-security-question]").textContent = result.question;
+    form.hidden = true;
+    resetForm.hidden = false;
+    resetForm.elements.securityAnswer.focus();
   } catch (error) {
     status.textContent = GENERIC_ERROR_MESSAGE;
     status.classList.add("error");
@@ -846,10 +905,57 @@ async function submitForgotPassword(event) {
   }
 }
 
+async function submitPasswordReset(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = form.querySelector(".form-status");
+  const button = form.querySelector('button[type="submit"]');
+  const data = Object.fromEntries(new FormData(form).entries());
+
+  if (!requiredFieldsPresent(data, ["email", "securityAnswer", "password", "confirmPassword"])) {
+    showFormError(status, "Please fill in all required fields.");
+    return;
+  }
+  if (!strongPassword(data.password)) {
+    showFormError(status, PASSWORD_REQUIREMENTS_MESSAGE);
+    return;
+  }
+  if (data.password !== data.confirmPassword) {
+    showFormError(status, "Passwords do not match.");
+    return;
+  }
+
+  status.textContent = "Changing your password...";
+  status.className = "form-status";
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      showFormError(status, formatAuthError(result, GENERIC_ERROR_MESSAGE));
+      return;
+    }
+    form.reset();
+    status.textContent = result.message;
+    status.classList.add("success");
+    window.setTimeout(() => {
+      window.location.hash = "#/login";
+    }, 900);
+  } catch (error) {
+    showFormError(status, GENERIC_ERROR_MESSAGE);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderVolunteerSignup() {
   app.innerHTML = `
     <div class="page auth-page">
-      ${header({ backHref: "#/login/public" })}
+      ${header({ backHref: "#/login/volunteer" })}
       <main class="center-stage signup-stage">
         <section class="login-panel volunteer-signup-panel" aria-labelledby="volunteer-heading">
           <div class="auth-heading">
@@ -877,6 +983,15 @@ function renderVolunteerSignup() {
               <label>Confirm password
                 <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password" required minlength="8" /></span>
               </label>
+              <label>Security question
+                <select name="securityQuestion" required>
+                  <option value="">Select a question</option>
+                  ${SECURITY_QUESTION_OPTIONS.map((option) => `<option value="${option.value}">${option.label}</option>`).join("")}
+                </select>
+              </label>
+              <label>Security answer
+                <input name="securityAnswer" type="password" placeholder="Answer you will remember" autocomplete="off" required minlength="2" maxlength="120" />
+              </label>
             </div>
             <p class="note">${icon("info")} ${PASSWORD_REQUIREMENTS_MESSAGE}</p>
             <label>Availability
@@ -896,7 +1011,7 @@ function renderVolunteerSignup() {
               <span>I confirm that these details are accurate and understand that deployment instructions must come from authorised coordinators.</span>
             </label>
             <button class="form-button" type="submit">Create Volunteer Account</button>
-            <p class="signup-line">Already registered? <a href="#/login/public">Sign in</a></p>
+            <p class="signup-line">Already registered? <a href="#/login/volunteer">Sign in as a volunteer</a></p>
             <p class="form-status" role="status"></p>
           </form>
         </section>
@@ -968,7 +1083,11 @@ function bindLoginForm() {
 
 async function submitLogin(role, payload) {
   const status = document.querySelector(".form-status");
-  const endpoint = role === "professional" ? "/api/auth/professional" : "/api/auth/public";
+  const endpoint = role === "professional"
+    ? "/api/auth/professional"
+    : role === "volunteer"
+      ? "/api/auth/volunteer"
+      : "/api/auth/public";
   const validationError = validateLoginData(payload);
   if (validationError) {
     showFormError(status, validationError);
@@ -1004,7 +1123,13 @@ async function submitLogin(role, payload) {
 async function renderDashboard() {
   const session = await getOpsSession();
   if (!session) return;
+  if (dashboardPreviewMap) {
+    dashboardPreviewMap.remove();
+    dashboardPreviewMap = null;
+  }
+  dashboardPreviewIncidents = [];
   const isProfessional = session?.role === "professional";
+  const isVolunteer = session?.role === "volunteer";
   emergencySpacesLoaded = false;
   emergencySpacesState = [];
   emergencySpacesSeed = [];
@@ -1018,7 +1143,6 @@ async function renderDashboard() {
     availability: "",
     status: ""
   };
-  volunteerDispatchState.smartMatchActive = false;
   volunteerDispatchState.smartMatchScores = new Map();
   simulationState.activeScenario = null;
   simulationState.selectedScenarioId = "";
@@ -1045,7 +1169,7 @@ async function renderDashboard() {
             </div>
           </div>
           <div class="ops-actions command-header-actions">
-            <a class="new-incident-button" href="#/incident-simulator">${icon("alert")} New Incident</a>
+            <a class="new-incident-button" href="#/new-incident">${icon("report")} New Incident</a>
           </div>
         </header>
 
@@ -1060,86 +1184,161 @@ async function renderDashboard() {
           </div>
           <nav class="ops-navigation-links">
             <a class="active" href="#/dashboard">${icon("activity")}<span><strong>Overview</strong><small>Live national resource dashboard</small></span></a>
-            <a href="#/flood-map">${icon("mapPin")}<span><strong>Live Flood Map</strong><small>View active flood locations</small></span></a>
+            <a href="#/flood-map">${icon("mapPin")}<span><strong>Hazard Map</strong><small>View floods and dengue areas</small></span></a>
             <a href="#/evacuation-routing">${icon("arrowRight")}<span><strong>Evacuation Routing</strong><small>Plan routes around live blockages</small></span></a>
-            <a href="#/risk-prediction">${icon("activity")}<span><strong>Risk Prediction</strong><small>Review live API and DB report risk scores</small></span></a>
-            <a href="#/analytics">${icon("barChart")}<span><strong>Analytics</strong><small>Analyze emergency response patterns</small></span></a>
-            <a href="#/incident-simulator">${icon("alert")}<span><strong>Incident Simulator</strong><small>Run predefined response scenarios</small></span></a>
+            <a href="#/risk-prediction">${icon("activity")}<span><strong>Risk Prediction</strong><small>Review dashboard AI assessment</small></span></a>
+            <a href="#/incidents">${icon("alert")}<span><strong>Incidents</strong><small>Review and manage reported incidents</small></span></a>
+            <a href="#/new-incident">${icon("report")}<span><strong>Report Incident</strong><small>Create a live operational incident</small></span></a>
             <a href="#/emergency-spaces">${icon("building")}<span><strong>Emergency Spaces</strong><small>Review overflow shelter capacity</small></span></a>
             <a href="#/volunteer-dispatch">${icon("users")}<span><strong>Volunteer Dispatch</strong><small>Match and deploy volunteers</small></span></a>
           </nav>
+          <section class="ops-navigation-account" aria-label="Signed-in account">
+            <div class="ops-navigation-profile">
+              <div class="command-avatar">${icon("users")}</div>
+              <div>
+                <strong>${escapeHtml(session?.name || session?.email || "QuickAid User")}</strong>
+                <span>${isProfessional ? "Incident Commander" : isVolunteer ? "Registered Volunteer" : "Community User"}</span>
+              </div>
+            </div>
+            <button class="command-signout-button" type="button" data-signout>${icon("logOut")} Sign Out</button>
+          </section>
         </aside>
 
-        <section class="command-shell">
-          <section class="command-map-stage" aria-label="Tactical operations map">
-            <div class="command-map-wrap">
-              <div id="onemap-dashboard-map" class="onemap-dashboard-map command-map" aria-label="Live flood map">
-                <span>Loading live flood map...</span>
+        <section class="dashboard-preview" aria-labelledby="dashboard-preview-title">
+          <div class="dashboard-preview-heading">
+            <div>
+              <p class="eyebrow">Dashboard preview</p>
+              <h2 id="dashboard-preview-title">Operations snapshot</h2>
+              <p>A compact view of live incidents, volunteers, and emergency-space capacity.</p>
+            </div>
+            <span class="dashboard-preview-live"><i></i> Live data</span>
+          </div>
+          <div class="dashboard-preview-stats" data-dashboard-preview-stats>
+            ${dashboardPreviewLoadingCards()}
+          </div>
+          <div class="dashboard-preview-grid">
+            <section class="dashboard-preview-panel dashboard-map-panel" aria-labelledby="dashboard-live-map-title">
+              <div class="dashboard-preview-panel-title">
+                <div>
+                  <p class="eyebrow">Multi-hazard overview</p>
+                  <h3 id="dashboard-live-map-title">Singapore Hazard Map</h3>
+                </div>
+                <a class="dashboard-map-link" href="#/flood-map">Full map ${icon("arrowRight")}</a>
+              </div>
+              <div id="dashboard-preview-map" class="dashboard-preview-map dashboard-inline-map">
+                <span>Loading flood, incident, and dengue data...</span>
+              </div>
+              <div class="dashboard-map-key" aria-label="Hazard map legend">
+                <span><i class="is-flood"></i><b>PUB flood alert</b></span>
+                <span><i class="is-incident"></i><b>Active incident</b></span>
+                <span><i class="is-dengue"></i><b>Dengue danger area</b></span>
+              </div>
+            </section>
+            <aside class="dashboard-preview-panel dashboard-incident-panel" aria-labelledby="dashboard-incident-feed-title">
+              <div class="dashboard-preview-panel-title">
+                <div>
+                  <p class="eyebrow">Live response</p>
+                  <h3 id="dashboard-incident-feed-title">Incident Feed</h3>
+                </div>
+                <span class="dashboard-feed-count" data-dashboard-feed-count>0 active</span>
+              </div>
+              <div class="dashboard-incident-feed" data-dashboard-incident-feed>
+                <p class="dashboard-preview-empty">Loading incidents...</p>
+              </div>
+            </aside>
+          </div>
+          <section class="dashboard-preview-panel dashboard-ai-panel" id="dashboard-ai-prediction" data-dashboard-ai-panel aria-labelledby="dashboard-ai-title" tabindex="-1">
+            <div class="dashboard-ai-heading">
+              <div>
+                <p class="eyebrow">On-demand assessment</p>
+                <h3 id="dashboard-ai-title">AI Prediction</h3>
+                <p>Choose an incident or zone, then run a four-hour risk analysis.</p>
+              </div>
+              <div class="dashboard-ai-controls">
+                <label>
+                  Analyze target
+                  <select data-dashboard-prediction-target disabled>
+                    <option value="">Loading targets...</option>
+                  </select>
+                </label>
+                <button type="button" data-dashboard-analyze disabled>${icon("activity")} Analyze</button>
+              </div>
+            </div>
+            <div class="dashboard-ai-result" data-dashboard-ai-result>
+              <div class="dashboard-ai-idle-icon">${icon("activity")}</div>
+              <div>
+                <strong>Prediction waiting</strong>
+                <p>No AI assessment has been run. Select a target and press Analyze.</p>
               </div>
             </div>
           </section>
 
-          <aside class="command-case-sidebar" aria-label="Active cases">
-            <section class="command-cases-panel">
-              <div class="command-section-title">
-                <h2>Active Cases</h2>
-                <span>14 Total</span>
+          <section class="dashboard-preview-panel dashboard-strategic-panel" aria-labelledby="dashboard-strategic-title">
+            <div class="dashboard-preview-heading dashboard-strategic-heading">
+              <div>
+                <p class="eyebrow">Analytics & insights</p>
+                <h2 id="dashboard-strategic-title">Strategic analytics</h2>
+                <p>Flood alerts, dengue clusters, and AI recommendations in one dashboard view.</p>
               </div>
-              <div class="command-case-tools">
-                <button type="button">Critical Only</button>
-                <button type="button" aria-label="Tune filters">${icon("barChart")}</button>
-              </div>
-              <article class="command-case-card selected">
-                <div class="command-case-meta">
-                  <span>#9902 · Critical</span>
-                  <small>14m ago</small>
+              <span class="dashboard-preview-live"><i></i> Analytics live</span>
+            </div>
+            <div class="dashboard-analytics-stats" data-dashboard-analytics-stats>
+              ${dashboardAnalyticsLoadingCards()}
+            </div>
+            <div class="dashboard-analytics-grid">
+              <article class="dashboard-analytics-card">
+                <div class="dashboard-preview-panel-title">
+                  <div>
+                    <p class="eyebrow">Flood pattern</p>
+                    <h3>Active Flood Alerts by Severity</h3>
+                  </div>
                 </div>
-                <h3>Flash Flood: Jurong East St 21</h3>
-                <p><span>${icon("droplet")} Flood</span><span>${icon("users")} 4 Units</span></p>
-                <a href="#/flood-map">Open Dashboard ${icon("arrowRight")}</a>
+                <div class="dashboard-bar-list" data-dashboard-flood-bars>
+                  <p class="dashboard-preview-empty">Loading flood alert distribution...</p>
+                </div>
               </article>
-              <article class="command-case-card">
-                <div class="command-case-meta">
-                  <span>#8741 · High Priority</span>
-                  <small>2h 10m</small>
+              <article class="dashboard-analytics-card">
+                <div class="dashboard-preview-panel-title">
+                  <div>
+                    <p class="eyebrow">Dengue pattern</p>
+                    <h3>Dengue Clusters by Case Size</h3>
+                  </div>
                 </div>
-                <h3>Dengue Cluster: Tampines</h3>
-                <p><span>${icon("medical")} Medical</span></p>
+                <div class="dashboard-bar-list" data-dashboard-dengue-bars>
+                  <p class="dashboard-preview-empty">Loading dengue cluster distribution...</p>
+                </div>
               </article>
-              <article class="command-case-card">
-                <div class="command-case-meta">
-                  <span>#9122 · Medium</span>
-                  <small>45m</small>
+            </div>
+            <div class="dashboard-analytics-grid dashboard-analytics-grid-secondary">
+              <section class="dashboard-analytics-card dashboard-insights-card" aria-labelledby="dashboard-insights-title">
+                <div class="dashboard-preview-panel-title">
+                  <div>
+                    <p class="eyebrow">AI strategic insights</p>
+                    <h3 id="dashboard-insights-title">Recommendations</h3>
+                  </div>
                 </div>
-                <h3>Fire: Woodlands Ind Park</h3>
-                <p><span>${icon("truck")} SCDF</span></p>
-              </article>
-            </section>
-
-            <section class="command-profile-card">
-              <div class="command-profile-row">
-                <div class="command-avatar">${icon("users")}</div>
-                <div>
-                  <strong>${escapeHtml(session?.name || session?.email || "QuickAid User")}</strong>
-                  <span>${isProfessional ? "Incident Commander" : "Public Operations View"}</span>
+                <div class="dashboard-insights-grid" data-dashboard-insights-grid>
+                  <p class="dashboard-preview-empty">Loading strategic insights...</p>
                 </div>
-              </div>
-              <button class="command-signout-button" type="button" data-signout>${icon("logOut")} Sign Out</button>
-            </section>
-          </aside>
+              </section>
+            </div>
+          </section>
         </section>
 
+        <div class="dashboard-modal-backdrop" data-dashboard-modal-backdrop hidden></div>
+        <section class="dashboard-modal" data-dashboard-incident-modal role="dialog" aria-modal="true" aria-labelledby="dashboard-modal-title" hidden>
+          <button class="dashboard-modal-close" type="button" data-close-dashboard-modal aria-label="Close incident details">${icon("close")}</button>
+          <div data-dashboard-incident-modal-content></div>
+        </section>
         <footer class="command-status-bar">
           <div>
             <span class="status-dot"></span>
-            <strong>Stable</strong>
-            <span>Core node: SG-NORTH-04</span>
-            <span>Server latency: 12ms</span>
+            <strong>Live operations monitoring</strong>
           </div>
           <span data-dashboard-clock>${new Date().toLocaleTimeString("en-SG", { hour12: false })} SGT</span>
         </footer>
 
-        ${!isProfessional ? `<p class="public-dashboard-note">Public view: operational actions are shown for transparency. Professional sign-in unlocks command actions.</p>` : ""}
+        ${isVolunteer ? `<p class="public-dashboard-note">Volunteer view: manage your availability and assigned response work from Volunteer Dispatch. Professional sign-in is required for command actions.</p>` : ""}
       </main>
     </div>
   `;
@@ -1178,70 +1377,1011 @@ async function renderDashboard() {
     window.location.hash = "#/";
   });
 
-  initOneMapDashboard();
+  bindDashboardModals();
+  await loadDashboardPreview();
+  await loadDashboardAnalytics();
+  focusDashboardAiPredictionIfRequested();
+  dashboardPreviewTimer = window.setInterval(() => {
+    if (isDashboardHash(window.location.hash)) {
+      loadDashboardPreview();
+      loadDashboardAnalytics();
+    }
+  }, 30_000);
   renderQuickStats();
   renderSimulationInsights();
   startOpsHeaderClock();
 }
 
-async function renderIncidentSimulatorPage() {
-  const session = await getOpsSession();
-  if (!session) return;
+function dashboardPreviewLoadingCards() {
+  return ["Active incidents", "Critical alerts", "Volunteers available", "Shelter capacity"]
+    .map((label) => `
+      <article class="dashboard-preview-stat is-loading">
+        <span>${label}</span>
+        <strong>—</strong>
+        <small>Loading...</small>
+      </article>
+    `)
+    .join("");
+}
 
-  simulationScenarios = [];
-  simulationState.activeScenario = null;
-  simulationState.selectedScenarioId = "";
-  simulationState.incidents = [];
-  simulationState.resources = [];
-  simulationState.volunteers = [];
-  simulationState.supplies = [];
-  simulationState.alerts = [];
-  simulationState.riskScores = [];
-  simulationState.briefing = DEFAULT_SIMULATION_BRIEFING;
-  simulationState.stats = { ...DEFAULT_DASHBOARD_STATS };
+function isDashboardHash(hash) {
+  return hash === "#/dashboard" || hash === DASHBOARD_AI_PREDICTION_HASH;
+}
+
+function focusDashboardAiPredictionIfRequested() {
+  if (window.location.hash !== DASHBOARD_AI_PREDICTION_HASH) return;
+  const panel = document.querySelector("[data-dashboard-ai-panel]");
+  if (!panel) return;
+
+  window.requestAnimationFrame(() => {
+    panel.scrollIntoView({ behavior: "smooth", block: "center" });
+    panel.focus({ preventScroll: true });
+    panel.classList.add("is-linked-focus");
+    window.setTimeout(() => {
+      panel.classList.remove("is-linked-focus");
+    }, 1800);
+  });
+}
+
+function dashboardAnalyticsLoadingCards() {
+  return ["Active Flood Alerts", "Active Dengue Clusters", "Total Dengue Cases"]
+    .map((label) => `
+      <article class="dashboard-preview-stat dashboard-analytics-stat is-loading">
+        <span>${label}</span>
+        <strong>—</strong>
+        <small>Loading...</small>
+      </article>
+    `)
+    .join("");
+}
+
+function dashboardPreviewStat({ label, value, detail, iconName, tone }) {
+  return `
+    <article class="dashboard-preview-stat ${tone}">
+      <div class="dashboard-preview-stat-icon">${icon(iconName)}</div>
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(detail)}</small>
+    </article>
+  `;
+}
+
+function dashboardAnalyticsStat({ label, value, detail, tone = "is-primary" }) {
+  return `
+    <article class="dashboard-preview-stat dashboard-analytics-stat ${tone}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(detail)}</small>
+    </article>
+  `;
+}
+
+function dashboardBarList(items) {
+  const maxValue = Math.max(1, ...items.map((item) => Number(item.value) || 0));
+  return items.map((item) => {
+    const value = Number(item.value) || 0;
+    const width = Math.max(value ? 8 : 2, Math.round((value / maxValue) * 100));
+    return `
+      <div class="dashboard-bar-row">
+        <div>
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </div>
+        <i style="--bar-width:${width}%;--bar-color:${escapeHtml(item.color || "#0f766e")}"></i>
+      </div>
+    `;
+  }).join("");
+}
+
+async function loadDashboardAnalytics() {
+  const stats = document.querySelector("[data-dashboard-analytics-stats]");
+  const floodBars = document.querySelector("[data-dashboard-flood-bars]");
+  const dengueBars = document.querySelector("[data-dashboard-dengue-bars]");
+  const insightsGrid = document.querySelector("[data-dashboard-insights-grid]");
+  if (!stats || !floodBars || !dengueBars || !insightsGrid) return;
+
+  const readJson = async (url, fallback) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return fallback;
+      return await response.json();
+    } catch (error) {
+      return fallback;
+    }
+  };
+
+  const [floodPayload, denguePayload] = await Promise.all([
+    readJson("/api/flood-alerts", { records: [] }),
+    readJson("/api/dengue-clusters", { geojson: { features: [] } })
+  ]);
+
+  const floodEntries = activeFloodReadings(floodPayload.records || []);
+  const dengueFeatures = denguePayload.geojson?.features || [];
+  const totalDengueCases = dengueFeatures.reduce((sum, feature) => sum + dengueClusterInfo(feature).caseSize, 0);
+
+  stats.innerHTML = [
+    dashboardAnalyticsStat({
+      label: "Active Flood Alerts",
+      value: floodEntries.length,
+      detail: "PUB alert readings active",
+      tone: floodEntries.length ? "is-warning" : "is-success"
+    }),
+    dashboardAnalyticsStat({
+      label: "Active Dengue Clusters",
+      value: dengueFeatures.length,
+      detail: "NEA cluster areas tracked",
+      tone: dengueFeatures.length ? "is-warning" : "is-success"
+    }),
+    dashboardAnalyticsStat({
+      label: "Total Dengue Cases",
+      value: totalDengueCases,
+      detail: "Across active clusters",
+      tone: totalDengueCases >= 50 ? "is-danger" : "is-primary"
+    })
+  ].join("");
+
+  const severityCounts = { Extreme: 0, Severe: 0, Moderate: 0, Minor: 0 };
+  floodEntries.forEach((entry) => {
+    if (severityCounts[entry.reading.severity] !== undefined) severityCounts[entry.reading.severity] += 1;
+  });
+  floodBars.innerHTML = dashboardBarList(Object.entries(severityCounts).map(([label, value]) => ({
+    label,
+    value,
+    color: severityColor(label)
+  })));
+
+  const dengueBucketCounts = DENGUE_BUCKETS.map((bucket) => ({ ...bucket, value: 0 }));
+  dengueFeatures.forEach((feature) => {
+    const { caseSize } = dengueClusterInfo(feature);
+    const bucket = dengueBucketCounts.find((entry) => caseSize <= entry.max);
+    if (bucket) bucket.value += 1;
+  });
+  dengueBars.innerHTML = dashboardBarList(dengueBucketCounts.map((bucket) => ({
+    label: bucket.label,
+    value: bucket.value,
+    color: bucket.color
+  })));
+
+  const insights = generateFloodDengueInsights(floodEntries, dengueFeatures).slice(0, 3);
+  insightsGrid.innerHTML = insights.map((insight) => {
+    const level = insight.riskLevel;
+    const riskClass = level === "CRITICAL" ? "risk-critical" : level === "HIGH" ? "risk-high" : "risk-medium";
+    return `
+      <article class="analytics-insight-card ${riskClass}">
+        <div class="analytics-insight-header">
+          <h3>${escapeHtml(insight.title)}</h3>
+          <span class="analytics-risk-badge analytics-risk-badge--${level.toLowerCase()}">${escapeHtml(level)}</span>
+        </div>
+        <h4 class="eyebrow">AI Recommendations</h4>
+        <ul>${insight.recommendations.slice(0, 3).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      </article>
+    `;
+  }).join("");
+}
+
+
+function normalizeDashboardIncident(incident, index) {
+  const severity = String(incident.severity || "Medium").toLowerCase();
+  const status = String(incident.status || "open").trim().toLowerCase();
+  const title = incident.areaDesc || incident.location || incident.name || `${incident.type || "Emergency"} incident`;
+  const location = incident.location || incident.areaDesc || "Location under verification";
+  const zone = Object.keys(DISPATCH_ZONE_COORDS).find((name) =>
+    `${title} ${location}`.toLowerCase().includes(name.toLowerCase())
+  );
+  const fallbackCoordinates = zone ? DISPATCH_ZONE_COORDS[zone] : null;
+  const hasLatitude = incident.lat !== null && incident.lat !== undefined && incident.lat !== "";
+  const hasLongitude = incident.lng !== null && incident.lng !== undefined && incident.lng !== "";
+  return {
+    id: String(incident.id || `preview-${index + 1}`),
+    title,
+    type: incident.type || "Emergency",
+    severity,
+    status,
+    createdAt: incident.createdAt || null,
+    location,
+    note: incident.note || "",
+    response: incident.response || incident.status || "Emergency teams are assessing the situation.",
+    source: incident._dashboardSource || "mongodb",
+    lat: hasLatitude && Number.isFinite(Number(incident.lat)) ? Number(incident.lat) : fallbackCoordinates?.[0],
+    lng: hasLongitude && Number.isFinite(Number(incident.lng)) ? Number(incident.lng) : fallbackCoordinates?.[1]
+  };
+}
+
+function dashboardIncidentGuidance(incident) {
+  const type = incident.type.toLowerCase();
+  if (type.includes("flood")) {
+    return {
+      action: "Drainage and response teams are monitoring water levels and redirecting traffic.",
+      prevention: "Avoid flooded roads, underpasses, canals, and low-lying areas. Never walk or drive through moving water."
+    };
+  }
+  if (type.includes("fire")) {
+    return {
+      action: "SCDF response units are securing the site and checking nearby buildings.",
+      prevention: "Keep clear of the smoke plume and access roads. Close windows and follow evacuation instructions."
+    };
+  }
+  if (type.includes("medical") || type.includes("dengue") || type.includes("health")) {
+    return {
+      action: "Health teams are coordinating surveillance, treatment capacity, and community outreach.",
+      prevention: "Avoid the affected zone where possible, remove stagnant water, use repellent, and seek care for symptoms."
+    };
+  }
+  if (type.includes("power")) {
+    return {
+      action: "Utility teams are isolating the fault and prioritising essential services.",
+      prevention: "Avoid damaged cables, use lifts only when cleared, and conserve phone battery."
+    };
+  }
+  return {
+    action: "Emergency coordinators are validating reports and dispatching the appropriate response.",
+    prevention: "Keep away from the affected area, leave access routes clear, and follow official instructions."
+  };
+}
+
+function dashboardSeverityLabel(severity) {
+  if (severity === "critical" || severity === "high") return "High priority";
+  if (severity === "medium") return "Moderate";
+  return "Advisory";
+}
+
+function bindDashboardModals() {
+  const backdrop = document.querySelector("[data-dashboard-modal-backdrop]");
+  const incidentModal = document.querySelector("[data-dashboard-incident-modal]");
+  if (!backdrop || !incidentModal) return;
+
+  const closeModals = () => {
+    backdrop.hidden = true;
+    incidentModal.hidden = true;
+    document.body.classList.remove("dashboard-modal-open");
+  };
+
+  document.querySelectorAll("[data-close-dashboard-modal]").forEach((button) => {
+    button.addEventListener("click", closeModals);
+  });
+  backdrop.addEventListener("click", closeModals);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !backdrop.hidden) closeModals();
+  });
+}
+
+function openDashboardIncident(incidentId) {
+  const incident = dashboardPreviewIncidents.find((item) => item.id === incidentId);
+  const modal = document.querySelector("[data-dashboard-incident-modal]");
+  const backdrop = document.querySelector("[data-dashboard-modal-backdrop]");
+  const content = document.querySelector("[data-dashboard-incident-modal-content]");
+  if (!incident || !modal || !backdrop || !content) return;
+
+  const guidance = dashboardIncidentGuidance(incident);
+  content.dataset.incidentId = incident.id;
+  content.innerHTML = `
+    <div class="dashboard-incident-modal-heading is-${escapeHtml(incident.severity)}">
+      <p>${escapeHtml(dashboardSeverityLabel(incident.severity))} · ${escapeHtml(incident.type)}</p>
+      <h2 id="dashboard-modal-title">${escapeHtml(incident.title)}</h2>
+      <span>${icon("mapPin")} ${escapeHtml(incident.location)}</span>
+    </div>
+    <div class="dashboard-incident-modal-grid">
+      <section>
+        <h3>What is happening</h3>
+        <p>${escapeHtml(incident.note || `${incident.type} response remains active at ${incident.location}.`)}</p>
+      </section>
+      <section>
+        <h3>Response underway</h3>
+        <p><strong>Current status: ${escapeHtml(incident.response)}.</strong> ${escapeHtml(guidance.action)}</p>
+      </section>
+      <section class="dashboard-public-advisory">
+        <h3>${icon("shield")} Public safety advisory</h3>
+        <p>${escapeHtml(guidance.prevention)}</p>
+      </section>
+    </div>
+    <footer class="dashboard-incident-modal-footer">
+      <span>Status: <strong>${escapeHtml(incident.status)}</strong></span>
+      <time>${dashboardIncidentTime(incident.createdAt)}</time>
+    </footer>
+  `;
+  backdrop.hidden = false;
+  modal.hidden = false;
+  document.body.classList.add("dashboard-modal-open");
+  modal.querySelector("[data-close-dashboard-modal]")?.focus();
+}
+
+function dashboardMapMarkerClass(severity) {
+  if (["critical", "high", "extreme", "severe"].includes(String(severity).toLowerCase())) return "is-critical";
+  if (["medium", "moderate"].includes(String(severity).toLowerCase())) return "is-warning";
+  return "is-advisory";
+}
+
+async function renderDashboardPreviewMap() {
+  const mapElement = document.querySelector("#dashboard-preview-map");
+  if (!mapElement || typeof L === "undefined") return;
+  if (dashboardPreviewMap) {
+    dashboardPreviewMap.invalidateSize();
+    return;
+  }
+
+  mapElement.innerHTML = "";
+  dashboardPreviewMap = L.map("dashboard-preview-map", { scrollWheelZoom: false }).setView([1.3521, 103.8198], 11);
+  addOneMapTileLayer(dashboardPreviewMap);
+  const bounds = L.latLngBounds([]);
+  let hazardCount = 0;
+
+  const addGlowingMarker = ({ lat, lng, severity, title, detail, incidentId = "" }) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const markerClass = dashboardMapMarkerClass(severity);
+    const marker = L.marker([lat, lng], {
+      icon: L.divIcon({
+        className: "dashboard-map-marker-shell",
+        html: `<button class="dashboard-map-marker ${markerClass}" type="button" aria-label="${escapeHtml(title)}"><span></span></button>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      })
+    }).addTo(dashboardPreviewMap);
+    marker.bindPopup(`
+      <div class="dashboard-map-popup">
+        <span class="dashboard-map-popup-level ${markerClass}">${escapeHtml(dashboardSeverityLabel(String(severity).toLowerCase()))}</span>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(detail)}</p>
+        ${incidentId ? `<button type="button" data-map-incident="${escapeHtml(incidentId)}">View full response details</button>` : ""}
+      </div>
+    `);
+    if (incidentId) {
+      marker.on("popupopen", () => {
+        const detailButton = document.querySelector("[data-map-incident]");
+        if (detailButton?.dataset.mapIncident === incidentId) detailButton.addEventListener("click", () => {
+          dashboardPreviewMap.closePopup();
+          openDashboardIncident(incidentId);
+        });
+      });
+    }
+    bounds.extend([lat, lng]);
+    hazardCount += 1;
+  };
+
+  const addFloodMarker = ({ record, reading }) => {
+    const circle = reading.area?.circle;
+    if (!Array.isArray(circle)) return;
+    const lat = Number(circle[0]);
+    const lng = Number(circle[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const severity = String(reading.severity || "Minor").toLowerCase();
+    const marker = L.marker([lat, lng], {
+      icon: L.divIcon({
+        className: "dashboard-flood-marker-shell",
+        html: `<button class="dashboard-flood-marker is-${escapeHtml(severity)}" type="button" aria-label="${escapeHtml(reading.headline || "PUB flood alert")}">${icon("droplet")}<span></span></button>`,
+        iconSize: [42, 42],
+        iconAnchor: [21, 21]
+      })
+    }).addTo(dashboardPreviewMap);
+    marker.bindPopup(floodPopup({ record, reading }));
+    bounds.extend([lat, lng]);
+    hazardCount += 1;
+  };
+
+  const locatedIncidents = dashboardPreviewIncidents.filter((incident) =>
+    incident.source === "mongodb" && Number.isFinite(incident.lat) && Number.isFinite(incident.lng)
+  );
+  locatedIncidents.forEach((incident) => {
+    addGlowingMarker({
+      lat: incident.lat,
+      lng: incident.lng,
+      severity: incident.severity,
+      title: incident.title,
+      detail: `${incident.type} · ${incident.status}`,
+      incidentId: incident.id
+    });
+  });
+
+  const [floodResult, dengueResult] = await Promise.allSettled([
+    fetch("/api/flood-alerts").then(async (response) => {
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Flood alerts unavailable.");
+      return payload;
+    }),
+    fetch("/api/dengue-clusters").then(async (response) => {
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Dengue clusters unavailable.");
+      return payload;
+    })
+  ]);
+
+  if (floodResult.status === "fulfilled") {
+    activeFloodReadings(floodResult.value.records || []).forEach(addFloodMarker);
+  }
+
+  if (dengueResult.status === "fulfilled") {
+    (dengueResult.value.geojson?.features || []).forEach((feature) => {
+      const info = dengueClusterInfo(feature);
+      const color = dengueColor(info.caseSize);
+      const layer = geoJsonFeatureToLayer(feature, {
+        style: () => ({
+          color,
+          weight: info.caseSize >= 10 ? 3 : 2,
+          fillColor: color,
+          fillOpacity: info.caseSize >= 10 ? 0.38 : 0.25,
+          dashArray: info.caseSize >= 10 ? "" : "5 5"
+        })
+      })
+        .bindPopup(denguePopup(info))
+        .addTo(dashboardPreviewMap);
+      if (layer.getBounds) bounds.extend(layer.getBounds());
+      hazardCount += 1;
+    });
+  }
+
+  if (bounds.isValid() && hazardCount > 1) {
+    dashboardPreviewMap.fitBounds(bounds, { padding: [36, 36], maxZoom: 13 });
+  } else if (!hazardCount) {
+    mapElement.insertAdjacentHTML("beforeend", `<p class="dashboard-map-empty">No located hazards are currently available.</p>`);
+  }
+}
+
+function dashboardPredictionMarkup(prediction, targetLabel) {
+  const severity = String(prediction.severity || "Low");
+  const tone = dashboardMapMarkerClass(severity);
+  return `
+    <div class="dashboard-ai-score ${tone}">
+      <span>Predicted risk</span>
+      <strong>${escapeHtml(prediction.riskScore ?? "—")}</strong>
+      <small>${escapeHtml(severity)}</small>
+    </div>
+    <div class="dashboard-ai-summary">
+      <p class="eyebrow">Four-hour outlook</p>
+      <h4>${escapeHtml(targetLabel)}</h4>
+      <div class="dashboard-ai-meta">
+        <span>Confidence <strong>${Math.round((prediction.confidence || 0) * 100)}%</strong></span>
+        <span>Time to impact <strong>${escapeHtml(prediction.timeToImpact || "Unknown")}</strong></span>
+      </div>
+      <p>${escapeHtml(prediction.explanation || "Prediction completed from available observations.")}</p>
+    </div>
+    <div class="dashboard-ai-actions">
+      <h4>Recommended actions</h4>
+      <ul>${(prediction.recommendations || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>Continue monitoring official data feeds.</li>"}</ul>
+    </div>
+  `;
+}
+
+function bindDashboardPrediction() {
+  const select = document.querySelector("[data-dashboard-prediction-target]");
+  const button = document.querySelector("[data-dashboard-analyze]");
+  const result = document.querySelector("[data-dashboard-ai-result]");
+  if (!select || !button || !result) return;
+
+  button.onclick = async () => {
+    const option = select.options[select.selectedIndex];
+    if (!option?.value) return;
+    button.disabled = true;
+    button.innerHTML = `${icon("activity")} Analyzing...`;
+    result.classList.remove("has-result");
+    result.innerHTML = `<p class="dashboard-preview-empty">Analyzing observations for ${escapeHtml(option.textContent)}...</p>`;
+
+    try {
+      const endpoint = option.dataset.source === "db" ? "/api/risk/predict-db" : "/api/risk/predict";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zone: option.value, hours: 4 })
+      });
+      const prediction = await response.json();
+      if (!response.ok) throw new Error(prediction.error || "Prediction failed.");
+      result.classList.add("has-result");
+      result.innerHTML = dashboardPredictionMarkup(prediction, option.textContent);
+    } catch (error) {
+      result.classList.remove("has-result");
+      result.innerHTML = `
+        <div class="dashboard-ai-idle-icon is-error">${icon("alert")}</div>
+        <div><strong>Analysis unavailable</strong><p>${escapeHtml(error.message)}</p></div>
+      `;
+    } finally {
+      button.disabled = false;
+      button.innerHTML = `${icon("activity")} Analyze`;
+    }
+  };
+}
+
+async function loadDashboardPredictionTargets({ autoAnalyze = false } = {}) {
+  const predictionSelect = document.querySelector("[data-dashboard-prediction-target]");
+  const predictionButton = document.querySelector("[data-dashboard-analyze]");
+  if (!predictionSelect || !predictionButton) return;
+
+  const selectedPredictionTarget = predictionSelect.value;
+  const readJson = async (url, fallback) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return fallback;
+      return await response.json();
+    } catch (error) {
+      return fallback;
+    }
+  };
+
+  const [incidentPayload, riskHeatmap] = await Promise.all([
+    readJson("/api/incidents", null),
+    readJson("/api/risk/heatmap?region=all&window=4", null)
+  ]);
+  const inactiveStatuses = new Set(["closed", "resolved", "completed"]);
+  const activeIncidents = (incidentPayload?.incidents || [])
+    .map((incident) => normalizeDashboardIncident({ ...incident, _dashboardSource: "mongodb" }))
+    .filter((incident) => !inactiveStatuses.has(incident.status));
+  const predictionTargets = activeIncidents.length
+    ? activeIncidents.map((incident) => ({
+      value: incident.id,
+      label: incident.title,
+      source: "db"
+    }))
+    : (riskHeatmap?.features || []).map((feature) => ({
+      value: feature.properties?.zoneId,
+      label: feature.properties?.zoneName || feature.properties?.zoneId || "Live flood zone",
+      source: "api"
+    })).filter((target) => target.value);
+
+  predictionSelect.innerHTML = predictionTargets.length
+    ? predictionTargets.map((target) => `
+      <option value="${escapeHtml(target.value)}" data-source="${target.source}">
+        ${escapeHtml(target.label)}
+      </option>
+    `).join("")
+    : `<option value="Singapore" data-source="api">Singapore monitoring baseline</option>`;
+  if ([...predictionSelect.options].some((option) => option.value === selectedPredictionTarget)) {
+    predictionSelect.value = selectedPredictionTarget;
+  }
+  predictionSelect.disabled = false;
+  predictionButton.disabled = false;
+  bindDashboardPrediction();
+
+  if (autoAnalyze && predictionSelect.value) {
+    predictionButton.click();
+  }
+}
+
+function dashboardIncidentTime(value) {
+  if (!value) return "Live";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Live";
+  return date.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+async function loadDashboardPreview() {
+  const stats = document.querySelector("[data-dashboard-preview-stats]");
+  const feed = document.querySelector("[data-dashboard-incident-feed]");
+  const feedCount = document.querySelector("[data-dashboard-feed-count]");
+  const predictionSelect = document.querySelector("[data-dashboard-prediction-target]");
+  const predictionButton = document.querySelector("[data-dashboard-analyze]");
+  if (!stats || !feed || !predictionSelect || !predictionButton) return;
+  const selectedPredictionTarget = predictionSelect.value;
+
+  const readJson = async (url, fallback) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return fallback;
+      return await response.json();
+    } catch (error) {
+      return fallback;
+    }
+  };
+
+  const [incidentPayload, spaces, volunteers, status, riskHeatmap] = await Promise.all([
+    readJson("/api/incidents", null),
+    readJson("/api/emergency-spaces", []),
+    readJson("/api/volunteers", []),
+    readJson("/api/status", null),
+    readJson("/api/risk/heatmap?region=all&window=4", null)
+  ]);
+
+  const fallbackIncidents = (status?.alerts || []).map((alert) => ({
+    id: alert.id,
+    type: alert.type,
+    severity: alert.priority,
+    status: alert.status,
+    areaDesc: `${alert.type}: ${alert.location}`,
+    _dashboardSource: "status-fallback"
+  }));
+  const incidentRecords = incidentPayload?.incidents?.length
+    ? incidentPayload.incidents.map((incident) => ({ ...incident, _dashboardSource: "mongodb" }))
+    : fallbackIncidents;
+  const incidents = incidentRecords
+    .map(normalizeDashboardIncident);
+  const inactiveStatuses = new Set(["closed", "resolved", "completed"]);
+  const active = incidents.filter((incident) => !inactiveStatuses.has(incident.status));
+  dashboardPreviewIncidents = active;
+  const incidentModal = document.querySelector("[data-dashboard-incident-modal]");
+  const incidentModalContent = document.querySelector("[data-dashboard-incident-modal-content]");
+  if (
+    incidentModal &&
+    !incidentModal.hidden &&
+    incidentModalContent?.dataset.incidentId &&
+    !active.some((incident) => incident.id === incidentModalContent.dataset.incidentId)
+  ) {
+    incidentModal.hidden = true;
+    const modalBackdrop = document.querySelector("[data-dashboard-modal-backdrop]");
+    if (modalBackdrop) modalBackdrop.hidden = true;
+    document.body.classList.remove("dashboard-modal-open");
+  }
+  const critical = active.filter((incident) => ["critical", "high"].includes(incident.severity));
+  const availableVolunteers = volunteers.filter((volunteer) =>
+    String(volunteer.status || volunteer.availability).toLowerCase() === "available"
+  );
+  const totalCapacity = spaces.reduce((sum, space) => sum + (Number(space.capacity) || 0), 0);
+  const totalOccupancy = spaces.reduce((sum, space) => sum + (Number(space.currentOccupancy ?? space.occupancy) || 0), 0);
+  const availableCapacity = Math.max(totalCapacity - totalOccupancy, 0);
+  const availableCapacityPercent = totalCapacity ? Math.round((availableCapacity / totalCapacity) * 100) : null;
+
+  stats.innerHTML = [
+    dashboardPreviewStat({
+      label: "Active incidents",
+      value: active.length,
+      detail: `${active.length} currently reported`,
+      iconName: "activity",
+      tone: "is-danger"
+    }),
+    dashboardPreviewStat({
+      label: "Critical alerts",
+      value: critical.length,
+      detail: "Requiring escalation",
+      iconName: "alert",
+      tone: "is-warning"
+    }),
+    dashboardPreviewStat({
+      label: "Volunteers available",
+      value: availableVolunteers.length,
+      detail: `${volunteers.length} registered`,
+      iconName: "users",
+      tone: "is-success"
+    }),
+    dashboardPreviewStat({
+      label: "Shelter capacity",
+      value: availableCapacityPercent == null ? "—" : `${availableCapacityPercent}%`,
+      detail: totalCapacity ? `${availableCapacity} of ${totalCapacity} places available` : "Capacity data unavailable",
+      iconName: "building",
+      tone: "is-primary"
+    })
+  ].join("");
+
+  feed.innerHTML = active.length
+    ? active.map((incident) => `
+      <article class="dashboard-incident-item is-${escapeHtml(incident.severity)}">
+        <button class="dashboard-incident-main" type="button" data-dashboard-incident="${escapeHtml(incident.id)}">
+          <span class="dashboard-severity-dot is-${escapeHtml(incident.severity)}"></span>
+          <span>
+            <strong>${escapeHtml(incident.title)}</strong>
+            <small>${escapeHtml(incident.type)} · ${escapeHtml(incident.status)}</small>
+          </span>
+          <time>${dashboardIncidentTime(incident.createdAt)}</time>
+        </button>
+        <button class="dashboard-incident-alert is-${escapeHtml(incident.severity)}" type="button" data-dashboard-incident="${escapeHtml(incident.id)}" aria-label="Open urgent details for ${escapeHtml(incident.title)}">
+          ${icon("alert")}
+        </button>
+      </article>
+    `).join("")
+    : `<p class="dashboard-preview-empty">No active incidents are currently reported.</p>`;
+  if (feedCount) feedCount.textContent = `${active.length} active`;
+
+  feed.querySelectorAll("[data-dashboard-incident]").forEach((button) => {
+    button.addEventListener("click", () => openDashboardIncident(button.dataset.dashboardIncident));
+  });
+
+  const predictionTargets = incidentPayload?.incidents?.length
+    ? active.map((incident) => ({
+      value: incident.id,
+      label: incident.title,
+      source: "db"
+    }))
+    : (riskHeatmap?.features || []).map((feature) => ({
+      value: feature.properties?.zoneId,
+      label: feature.properties?.zoneName || feature.properties?.zoneId || "Live flood zone",
+      source: "api"
+    })).filter((target) => target.value);
+  predictionSelect.innerHTML = predictionTargets.length
+    ? predictionTargets.map((target) => `
+      <option value="${escapeHtml(target.value)}" data-source="${target.source}">
+        ${escapeHtml(target.label)}
+      </option>
+    `).join("")
+    : `<option value="Singapore" data-source="api">Singapore monitoring baseline</option>`;
+  if ([...predictionSelect.options].some((option) => option.value === selectedPredictionTarget)) {
+    predictionSelect.value = selectedPredictionTarget;
+  }
+  predictionSelect.disabled = false;
+  predictionButton.disabled = false;
+  bindDashboardPrediction();
+  if (dashboardPreviewMap) {
+    dashboardPreviewMap.remove();
+    dashboardPreviewMap = null;
+  }
+  await renderDashboardPreviewMap();
+}
+
+async function renderIncidentReportPage() {
+  const session = await getOpsSession({ redirect: false });
 
   app.innerHTML = opsShellMarkup({
-    active: "simulator",
+    active: "report",
     session,
     content: `
-      <section class="simulation-suite-section ops-standalone-section" data-simulation-section>
+      <section class="incident-report-section ops-standalone-section">
         <div class="simulation-suite-header">
           <div>
-            <p class="eyebrow">Scenario operations</p>
-            <h2>Incident Simulator</h2>
-            <p class="simulation-suite-note">Simulation mode: This demo uses predefined disaster scenarios to model demand across incidents, resources, volunteers, supplies, alerts, and risk scores.</p>
+            <p class="eyebrow">Live operations</p>
+            <h2>Report New Incident</h2>
           </div>
         </div>
-        <section class="incident-simulator-card">
-          <h3>Scenario Controls</h3>
-          <label class="simulation-field">
-            Scenario
-            <select data-scenario-select disabled>
-              <option value="">Loading scenarios...</option>
-            </select>
-          </label>
-          <div class="incident-simulator-preview" data-simulation-preview>
-            <p class="simulation-empty">Load a scenario to preview its demand profile.</p>
-          </div>
-          <div class="incident-simulator-actions">
-            <button class="secondary-button compact" type="button" data-run-simulation disabled>Run Simulation</button>
-            <button class="secondary-button compact" type="button" data-reset-simulation disabled>Reset Simulation</button>
-          </div>
+        <section class="incident-report-card">
+          <form class="incident-report-form" data-incident-report-form>
+            <div class="incident-report-grid">
+              <label>
+                Type of incident
+                <select name="type" data-incident-type required>
+                  <option value="">Select incident type</option>
+                  <option value="Flood">Flood</option>
+                  <option value="Dengue Cluster">Dengue cluster</option>
+                  <option value="Fire">Fire</option>
+                  <option value="Medical">Medical emergency</option>
+                  <option value="Traffic">Traffic accident</option>
+                  <option value="Power outage">Power outage</option>
+                  <option value="Resource shortage">Resource shortage</option>
+                  <option value="Structural">Structural hazard</option>
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+              <label>
+                Severity
+                <select name="severity" required>
+                  <option value="">Select severity</option>
+                  <option value="Critical">Critical</option>
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+              </label>
+            </div>
+            <label class="incident-other-field" data-incident-other-field hidden>
+              Other incident type
+              <input name="otherType" type="text" maxlength="80" placeholder="Describe the incident type" />
+            </label>
+            <label>
+              Location postal code
+              <input name="postalCode" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="postal-code" placeholder="e.g. 600123" required />
+              <small>The backend uses OneMap to convert this postal code into latitude and longitude.</small>
+            </label>
+            <label>
+              Notes
+              <textarea name="note" rows="5" maxlength="1000" placeholder="Add hazards, access restrictions, response details, or other useful information"></textarea>
+            </label>
+            <div class="incident-report-actions">
+              <button class="form-button" type="submit" data-incident-submit>${icon("alert")} Submit Incident</button>
+              <p class="form-status" data-incident-status role="status"></p>
+            </div>
+          </form>
         </section>
-        <div data-simulation-response hidden></div>
       </section>
     `
   });
   bindOpsShell();
-  document.querySelector("[data-scenario-select]").addEventListener("change", (event) => {
-    simulationState.selectedScenarioId = event.currentTarget.value;
-    renderIncidentSimulator();
+  const form = document.querySelector("[data-incident-report-form]");
+  const typeSelect = document.querySelector("[data-incident-type]");
+  const otherField = document.querySelector("[data-incident-other-field]");
+  const otherInput = otherField.querySelector("input");
+  const status = document.querySelector("[data-incident-status]");
+  const submitButton = document.querySelector("[data-incident-submit]");
+
+  typeSelect.addEventListener("change", () => {
+    const showOther = typeSelect.value === "Other";
+    otherField.hidden = !showOther;
+    otherInput.required = showOther;
+    if (!showOther) otherInput.value = "";
   });
-  document.querySelector("[data-run-simulation]").addEventListener("click", () => {
-    runSimulation(simulationState.selectedScenarioId);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    status.textContent = "Verifying location and submitting incident...";
+    status.classList.remove("error", "success");
+    submitButton.disabled = true;
+
+    try {
+      const data = Object.fromEntries(new FormData(form).entries());
+      if (data.type === "Other") data.type = String(data.otherType || "").trim();
+      delete data.otherType;
+      if (!data.type) throw new Error("Enter the other incident type.");
+
+      const response = await fetch("/api/incidents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to submit the incident.");
+
+      status.textContent = "Incident submitted. Updating the dashboard...";
+      status.classList.add("success");
+      window.setTimeout(() => {
+        window.location.hash = session ? "#/dashboard" : "#/incidents";
+      }, 700);
+    } catch (error) {
+      status.textContent = error.message || "Unable to submit the incident.";
+      status.classList.add("error");
+      submitButton.disabled = false;
+    }
   });
-  document.querySelector("[data-reset-simulation]").addEventListener("click", resetSimulation);
-  await Promise.all([fetchEmergencySpaces(), fetchSimulationScenarios()]);
+}
+
+function displayIncidentStatus(status) {
+  const normalized = String(status || "active").toLowerCase();
+  if (normalized === "open") return "active";
+  if (normalized === "investigating") return "monitoring";
+  if (normalized === "closed") return "resolved";
+  return normalized;
+}
+
+function incidentStatusLabel(status) {
+  const normalized = displayIncidentStatus(status);
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function incidentTypeValue(type) {
+  const normalized = String(type || "other").trim().toLowerCase();
+  if (normalized.includes("flood")) return "flood";
+  if (normalized.includes("dengue")) return "dengue_cluster";
+  if (normalized.includes("fire")) return "fire";
+  if (normalized.includes("traffic") || normalized.includes("road")) return "traffic";
+  if (normalized.includes("medical") || normalized.includes("health")) return "medical";
+  if (normalized.includes("power") || normalized.includes("utility")) return "power_outage";
+  if (normalized.includes("resource") || normalized.includes("shortage")) return "resource_shortage";
+  if (normalized.includes("structur") || normalized.includes("building")) return "structural";
+  return "other";
+}
+
+function incidentManagementCard(incident, isProfessional) {
+  const status = displayIncidentStatus(incident.status);
+  const title = incident.areaDesc || incident.location || "Location pending";
+  return `
+    <article class="incident-management-card is-${escapeHtml(String(incident.severity || "low").toLowerCase())}">
+      <div class="incident-management-card-head">
+        <div>
+          <div class="incident-management-badges">
+            <span class="incident-severity-badge">${escapeHtml(incident.severity || "Low")}</span>
+            <span class="incident-status-badge is-${escapeHtml(status)}">${escapeHtml(incidentStatusLabel(status))}</span>
+          </div>
+          <h3>${escapeHtml(incident.type || "Other incident")}</h3>
+          <p>${escapeHtml(title)}</p>
+        </div>
+        <time>${dashboardIncidentTime(incident.createdAt)}</time>
+      </div>
+      ${incident.note ? `<p class="incident-management-note">${escapeHtml(incident.note)}</p>` : ""}
+      <div class="incident-management-meta">
+        <span>Reported by ${escapeHtml(incident.reporter || "anonymous")}</span>
+        ${Number.isFinite(Number(incident.lat)) && Number.isFinite(Number(incident.lng))
+          ? `<span>${Number(incident.lat).toFixed(4)}, ${Number(incident.lng).toFixed(4)}</span>`
+          : ""}
+      </div>
+      ${isProfessional ? `
+        <label class="incident-status-control">
+          Update status
+          <select data-incident-status="${escapeHtml(incident.id)}">
+            ${["active", "monitoring", "contained", "resolved"].map((option) => `
+              <option value="${option}"${option === status ? " selected" : ""}>${incidentStatusLabel(option)}</option>
+            `).join("")}
+          </select>
+        </label>
+      ` : ""}
+    </article>
+  `;
+}
+
+async function renderIncidentsPage() {
+  const session = await getOpsSession({ redirect: false });
+  const isProfessional = session?.role === "professional";
+
+  app.innerHTML = opsShellMarkup({
+    active: "incidents",
+    session,
+    content: `
+      <section class="incidents-page ops-standalone-section">
+        <div class="incidents-page-header">
+          <div>
+            <h2>Incidents</h2>
+            <p data-incidents-count>Loading reported incidents...</p>
+          </div>
+          <a class="form-button incidents-report-button" href="#/new-incident">${icon("report")} Report Incident</a>
+        </div>
+        <div class="incidents-filter-bar">
+          <label>
+            Incident type
+            <select data-incident-type-filter>
+              <option value="all">All types</option>
+              <option value="flood">Flood</option>
+              <option value="dengue_cluster">Dengue Cluster</option>
+              <option value="fire">Fire</option>
+              <option value="traffic">Traffic Disruption</option>
+              <option value="medical">Medical Emergency</option>
+              <option value="power_outage">Power Outage</option>
+              <option value="resource_shortage">Resource Shortage</option>
+              <option value="structural">Structural Hazard</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select data-incident-status-filter>
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="monitoring">Monitoring</option>
+              <option value="contained">Contained</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </label>
+        </div>
+        ${isProfessional
+          ? `<p class="incidents-access-note">${icon("shield")} Professional access: incident statuses can be updated here.</p>`
+          : `<p class="incidents-access-note">Anyone can report an incident. Only signed-in professional accounts can edit reported incidents.</p>`}
+        <div class="incidents-list" data-incidents-list>
+          <p class="incidents-empty">Loading incidents...</p>
+        </div>
+        <p class="form-status incidents-page-status" data-incidents-status role="status"></p>
+      </section>
+    `
+  });
+  bindOpsShell();
+
+  const list = document.querySelector("[data-incidents-list]");
+  const count = document.querySelector("[data-incidents-count]");
+  const typeFilter = document.querySelector("[data-incident-type-filter]");
+  const statusFilter = document.querySelector("[data-incident-status-filter]");
+  const pageStatus = document.querySelector("[data-incidents-status]");
+  let incidents = [];
+
+  function renderFilteredIncidents() {
+    const filtered = incidents.filter((incident) => {
+      const matchesType = typeFilter.value === "all" || incidentTypeValue(incident.type) === typeFilter.value;
+      const matchesStatus = statusFilter.value === "all" || displayIncidentStatus(incident.status) === statusFilter.value;
+      return matchesType && matchesStatus;
+    });
+    count.textContent = `${filtered.length} incident${filtered.length === 1 ? "" : "s"} shown`;
+    list.innerHTML = filtered.length
+      ? filtered.map((incident) => incidentManagementCard(incident, isProfessional)).join("")
+      : `<p class="incidents-empty">No incidents match the current filters.</p>`;
+
+    if (!isProfessional) return;
+    list.querySelectorAll("[data-incident-status]").forEach((select) => {
+      select.addEventListener("change", async () => {
+        const incident = incidents.find((item) => item.id === select.dataset.incidentStatus);
+        const previousStatus = displayIncidentStatus(incident?.status);
+        select.disabled = true;
+        pageStatus.textContent = "Updating incident status...";
+        pageStatus.classList.remove("error", "success");
+        try {
+          const response = await fetch(`/api/incidents/${encodeURIComponent(select.dataset.incidentStatus)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: select.value })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Unable to update incident.");
+          incidents = incidents.map((item) => item.id === result.incident.id ? result.incident : item);
+          pageStatus.textContent = "Incident status updated.";
+          pageStatus.classList.add("success");
+          renderFilteredIncidents();
+        } catch (error) {
+          select.value = previousStatus;
+          select.disabled = false;
+          pageStatus.textContent = error.message || "Unable to update incident.";
+          pageStatus.classList.add("error");
+        }
+      });
+    });
+  }
+
+  typeFilter.addEventListener("change", renderFilteredIncidents);
+  statusFilter.addEventListener("change", renderFilteredIncidents);
+
+  try {
+    const response = await fetch("/api/incidents");
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Unable to load incidents.");
+    incidents = result.incidents || [];
+    renderFilteredIncidents();
+  } catch (error) {
+    count.textContent = "Incidents unavailable";
+    list.innerHTML = `<p class="incidents-empty error">${escapeHtml(error.message || "Unable to load incidents.")}</p>`;
+  }
 }
 
 async function renderEmergencySpacesPage() {
@@ -1250,6 +2390,9 @@ async function renderEmergencySpacesPage() {
   emergencySpacesLoaded = false;
   emergencySpacesState = [];
   emergencySpacesSeed = [];
+  emergencySpacesFilter = "all";
+  emergencySpacesUserLocation = null;
+  emergencyHospitalsState = SINGAPORE_HOSPITALS.map((hospital) => ({ ...hospital }));
 
   const isProfessional = session?.role === "professional";
 
@@ -1261,20 +2404,69 @@ async function renderEmergencySpacesPage() {
         <section class="emergency-spaces-section">
           <div class="emergency-spaces-header">
             <div>
-              <p class="eyebrow">Emergency resources</p>
-              <h2>Emergency Spaces &amp; Nearest Hospitals</h2>
-              <p class="emergency-spaces-subtitle">Showing nearest hospitals based on your location, and available emergency conversion spaces.${isProfessional ? " As a professional, you can toggle spaces active or inactive." : ""}</p>
+              <h2>Emergency Spaces</h2>
+              <p class="emergency-spaces-subtitle">Shelters and hospitals with live capacity tracking</p>
             </div>
+            ${isProfessional ? `<button class="form-button emergency-space-add-toggle" type="button" data-toggle-space-form>${icon("building")} Add Conversion Space</button>` : ""}
           </div>
 
-          <section class="nearest-hospitals-section">
-            <h3>Nearest Hospitals to Your Location</h3>
-            <p class="nearest-hospitals-status" data-nearest-hospitals-status>Allow location access to find the hospitals closest to you.</p>
-            <div class="nearest-hospitals-grid" data-nearest-hospitals-grid></div>
-            <button class="secondary-button compact" type="button" data-locate-hospitals style="margin-top:8px">${icon("mapPin")} Find Nearest Hospitals</button>
+          <section class="emergency-spaces-toolbar" aria-label="Emergency spaces filters">
+            <div class="emergency-space-tabs" role="tablist" aria-label="Emergency space category">
+              <button class="active" type="button" data-space-filter="all">All</button>
+              <button type="button" data-space-filter="shelter">Shelters</button>
+              <button type="button" data-space-filter="hospital">Hospitals</button>
+            </div>
+            <button class="secondary-button compact" type="button" data-locate-hospitals>${icon("mapPin")} Nearest to me</button>
           </section>
+          <p class="nearest-hospitals-status" data-nearest-hospitals-status>Click “Nearest to me” to sort hospitals and spaces by distance from your location.</p>
 
-          <h3 style="margin-top:24px">Emergency Conversion Spaces</h3>
+          ${isProfessional ? `
+            <form class="emergency-space-form" data-add-emergency-space hidden novalidate>
+              <input name="spaceId" type="hidden" />
+              <input name="hospitalId" type="hidden" />
+              <input name="lat" type="hidden" />
+              <input name="lng" type="hidden" />
+              <div class="emergency-space-form-heading">
+                <div>
+                  <h3 data-space-form-title>Add Emergency Conversion Space</h3>
+                  <p data-space-form-description>Register a shelter or hospital conversion space for live capacity tracking.</p>
+                </div>
+                <span class="emergency-space-form-lock">${icon("shield")} Professionals only</span>
+              </div>
+              <div class="emergency-space-form-grid">
+                <label>Space name
+                  <input name="name" type="text" placeholder="e.g. Pasir Ris Sports Hall" required maxlength="100" />
+                </label>
+                <label>Type
+                  <select name="type" required>
+                    ${EMERGENCY_SPACE_TYPES.map((type) => `<option value="${escapeHtml(type.value)}">${escapeHtml(type.label)}</option>`).join("")}
+                  </select>
+                </label>
+                <label>Location / address
+                  <input name="address" type="text" placeholder="Street address or landmark" required maxlength="140" />
+                </label>
+                <label>Region / zone
+                  <input name="region" type="text" placeholder="e.g. Pasir Ris" required maxlength="80" />
+                </label>
+                <label>Capacity
+                  <input name="capacity" type="number" min="1" max="10000" step="1" placeholder="300" required />
+                </label>
+                <label>Setup time (hours)
+                  <input name="setupTimeHours" type="number" min="0" max="168" step="0.5" placeholder="2" />
+                </label>
+              </div>
+              <button class="secondary-button compact" type="button" data-space-use-location>${icon("mapPin")} Use my current location</button>
+              <label class="emergency-space-checkbox">
+                <input name="wheelchairAccess" type="checkbox" />
+                Wheelchair accessible
+              </label>
+              <div class="emergency-space-form-actions">
+                <button class="form-button" type="submit" data-space-form-submit>${icon("building")} Add Space</button>
+                <button class="secondary-button compact" type="button" data-reset-space-form>Reset</button>
+                <p class="form-status" data-emergency-space-form-status role="status"></p>
+              </div>
+            </form>
+          ` : ""}
           <p class="emergency-spaces-message" data-emergency-spaces-message>Loading emergency conversion spaces...</p>
           <div class="emergency-spaces-grid" data-emergency-spaces-grid></div>
         </section>
@@ -1283,11 +2475,12 @@ async function renderEmergencySpacesPage() {
   });
   bindOpsShell();
   await fetchEmergencySpaces();
+  bindEmergencySpaceForm();
+  bindEmergencySpaceControls();
 
   document.querySelector("[data-locate-hospitals]")?.addEventListener("click", () => {
     const statusEl = document.querySelector("[data-nearest-hospitals-status]");
-    const gridEl = document.querySelector("[data-nearest-hospitals-grid]");
-    if (!statusEl || !gridEl) return;
+    if (!statusEl) return;
     if (!navigator.geolocation) {
       statusEl.textContent = "Geolocation is not supported by this browser.";
       return;
@@ -1296,27 +2489,9 @@ async function renderEmergencySpacesPage() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
-        const sorted = SINGAPORE_HOSPITALS.map((h) => ({
-          ...h,
-          distanceKm: haversineKm(latitude, longitude, h.lat, h.lng)
-        })).sort((a, b) => a.distanceKm - b.distanceKm);
-        statusEl.textContent = `Showing hospitals sorted by distance from your location.`;
-        gridEl.innerHTML = sorted.map((h) => `
-          <article class="emergency-space-card hospital-card">
-            <div class="emergency-space-card-head">
-              <div>
-                <h3>${h.name}</h3>
-                <p>${h.zone} · ${h.distanceKm.toFixed(1)} km away</p>
-              </div>
-              <span class="emergency-space-badge is-ready">${h.distanceKm < 3 ? "NEAREST" : "NEARBY"}</span>
-            </div>
-            <dl class="emergency-space-stats">
-              <div><dt>Zone</dt><dd>${h.zone}</dd></div>
-              <div><dt>Distance</dt><dd>${h.distanceKm.toFixed(2)} km</dd></div>
-              <div><dt>Bed Capacity</dt><dd>${h.beds}</dd></div>
-            </dl>
-          </article>
-        `).join("");
+        emergencySpacesUserLocation = { lat: latitude, lng: longitude };
+        statusEl.textContent = "Sorted by nearest hospitals, shelters, and conversion spaces from your location.";
+        renderEmergencySpaces();
       },
       () => {
         statusEl.textContent = "Unable to get your location. Please enable location access in your browser.";
@@ -1339,7 +2514,6 @@ async function renderVolunteerDispatchPage() {
     availability: "",
     status: ""
   };
-  volunteerDispatchState.smartMatchActive = false;
   volunteerDispatchState.smartMatchScores = new Map();
 
   app.innerHTML = opsShellMarkup({
@@ -1393,14 +2567,14 @@ function readStoredSession() {
   }
 }
 
-function opsNavigationMarkup(active = "overview") {
+function opsNavigationMarkup(active = "overview", session = null) {
   const navItems = [
     { key: "overview", href: "#/dashboard", iconName: "activity", title: "Overview", detail: "Live national resource dashboard" },
-    { key: "flood", href: "#/flood-map", iconName: "mapPin", title: "Live Flood Map", detail: "View active flood locations" },
+    { key: "flood", href: "#/flood-map", iconName: "mapPin", title: "Hazard Map", detail: "View floods and dengue areas" },
     { key: "evacuation", href: "#/evacuation-routing", iconName: "arrowRight", title: "Evacuation Routing", detail: "Plan routes around live blockages" },
-    { key: "risk", href: "#/risk-prediction", iconName: "activity", title: "Risk Prediction", detail: "Review live API and DB report risk scores" },
-    { key: "analytics", href: "#/analytics", iconName: "barChart", title: "Analytics", detail: "Analyze emergency response patterns" },
-    { key: "simulator", href: "#/incident-simulator", iconName: "alert", title: "Incident Simulator", detail: "Run predefined response scenarios" },
+    { key: "risk", href: "#/risk-prediction", iconName: "activity", title: "Risk Prediction", detail: "Review dashboard AI assessment" },
+    { key: "incidents", href: "#/incidents", iconName: "alert", title: "Incidents", detail: "Review and manage reported incidents" },
+    { key: "report", href: "#/new-incident", iconName: "report", title: "Report Incident", detail: "Create a live operational incident" },
     { key: "spaces", href: "#/emergency-spaces", iconName: "building", title: "Emergency Spaces", detail: "Review overflow shelter capacity" },
     { key: "dispatch", href: "#/volunteer-dispatch", iconName: "users", title: "Volunteer Dispatch", detail: "Match and deploy volunteers" }
   ];
@@ -1423,36 +2597,55 @@ function opsNavigationMarkup(active = "overview") {
           </a>
         `).join("")}
       </nav>
+      ${session ? `
+        <section class="ops-navigation-account" aria-label="Signed-in account">
+          <div class="ops-navigation-profile">
+            <div class="command-avatar">${icon("users")}</div>
+            <div>
+              <strong>${escapeHtml(session.name || session.email || "QuickAid User")}</strong>
+              <span>${session.role === "professional" ? "Incident Commander" : session.role === "volunteer" ? "Registered Volunteer" : "Community User"}</span>
+            </div>
+          </div>
+          <button class="command-signout-button" type="button" data-signout>${icon("logOut")} Sign Out</button>
+        </section>
+      ` : ""}
     </aside>
   `;
 }
 
 function opsShellMarkup({ active = "overview", session = null, content = "" } = {}) {
   const isSignedIn = Boolean(session);
+  const useFullWidth = active === "incidents" || active === "report";
   return `
     <div class="page dashboard-page">
-      <main class="ops-dashboard">
+      <main class="ops-dashboard${useFullWidth ? " is-full-width-operations" : ""}">
         <header class="ops-header">
-          <div>
-            <div class="ops-title-row">
-              <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
-                <span class="hamburger-lines" aria-hidden="true"></span>
-              </button>
-              <img class="ops-title-logo" src="/assets/logo.png" alt="" aria-hidden="true" />
+          <div class="ops-title-row">
+            <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
+              <span class="hamburger-lines" aria-hidden="true"></span>
+            </button>
+            <img class="ops-title-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
+            <div class="ops-brand-copy">
               <h1>AIECC</h1>
+              <p>${OPS_BRAND_SUBTITLE}</p>
             </div>
-            <p>${OPS_BRAND_SUBTITLE}</p>
           </div>
           <div class="ops-actions">
-            <span class="ops-live">${icon("activity")} Live</span>
             <span class="updated-pill" data-last-updated>Last Updated : ${formatOpsUpdatedTime()}</span>
             ${isSignedIn
-              ? `<button class="secondary-button compact" data-auth-action>Sign Out</button>`
+              ? ""
               : `<button class="secondary-button compact" data-auth-action>Sign in</button><a class="secondary-button compact ops-signup-button" href="#/signup">Sign up</a>`}
           </div>
         </header>
-        ${opsNavigationMarkup(active)}
+        ${opsNavigationMarkup(active, session)}
         ${content}
+        <footer class="command-status-bar feature-status-bar">
+          <div>
+            <span class="status-dot"></span>
+            <strong>Live operations monitoring</strong>
+          </div>
+          <span data-dashboard-clock>${new Date().toLocaleTimeString("en-SG", { hour12: false })} SGT</span>
+        </footer>
       </main>
     </div>
   `;
@@ -1502,6 +2695,11 @@ function bindOpsShell() {
     localStorage.removeItem("quickaid-session");
     window.location.hash = "#/";
   });
+  document.querySelector("[data-signout]")?.addEventListener("click", async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    localStorage.removeItem("quickaid-session");
+    window.location.hash = "#/";
+  });
   startOpsHeaderClock();
 }
 
@@ -1524,21 +2722,25 @@ function opsMetric({ id, label, value, tone }) {
 }
 
 function calculateEmergencySpaceStatus(space) {
-  if (space.currentOccupancy === 0) return "INACTIVE";
-  if (space.currentOccupancy >= space.capacity) return "FULL";
-  if (space.currentOccupancy >= space.capacity * 0.7) return "NEARLY FULL";
+  const requestedStatus = String(space.status || "").toUpperCase();
+  if (space._active === false || requestedStatus === "INACTIVE" || requestedStatus === "CLOSED") return "INACTIVE";
+  if (space.currentOccupancy >= space.capacity && space.capacity > 0) return "FULL";
+  if (space.currentOccupancy >= space.capacity * 0.7 && space.capacity > 0) return "NEARLY FULL";
   return "READY";
 }
 
 function decorateEmergencySpace(space) {
   const currentOccupancy = Math.max(0, Math.min(space.capacity, Number(space.currentOccupancy) || 0));
+  const active = !["INACTIVE", "CLOSED"].includes(String(space.status || "").toUpperCase());
   return {
     ...space,
+    _active: active,
     currentOccupancy,
     availableCapacity: Math.max(space.capacity - currentOccupancy, 0),
     status: calculateEmergencySpaceStatus({
       ...space,
-      currentOccupancy
+      currentOccupancy,
+      _active: active
     })
   };
 }
@@ -1550,32 +2752,430 @@ function emergencySpaceBadgeClass(status) {
   return "is-ready";
 }
 
-function emergencySpaceCard(space) {
+function emergencySpaceCategory(space) {
+  const type = String(space.type || "").toLowerCase();
+  if (type.includes("hospital")) return "hospital";
+  return "shelter";
+}
+
+function emergencySpaceStatusLabel(status) {
+  if (status === "INACTIVE") return "closed";
+  if (status === "FULL") return "full";
+  return "open";
+}
+
+function emergencySpaceCoordinates(space) {
+  if (Number.isFinite(Number(space.lat)) && Number.isFinite(Number(space.lng))) {
+    return { lat: Number(space.lat), lng: Number(space.lng) };
+  }
+  const coords = DISPATCH_ZONE_COORDS[space.region];
+  return coords ? { lat: coords[0], lng: coords[1] } : null;
+}
+
+function distanceFromUser(point) {
+  if (!emergencySpacesUserLocation || !point) return null;
+  return haversineKm(emergencySpacesUserLocation.lat, emergencySpacesUserLocation.lng, point.lat, point.lng);
+}
+
+function formatReverseGeocodeAddress(address) {
+  if (!address) return "";
+  return [address.building, address.block, address.road, address.postalCode ? `Singapore ${address.postalCode}` : ""]
+    .filter((part) => part && String(part).toLowerCase() !== "nil")
+    .join(", ");
+}
+
+function hospitalCard(hospital, { isNearest = false } = {}) {
+  const distanceKm = distanceFromUser({ lat: hospital.lat, lng: hospital.lng });
+  const occupancy = Math.max(0, Math.min(hospital.beds, Number(hospital.occupancy) || 0));
+  const occupancyPercent = hospital.beds ? Math.min(100, Math.round((occupancy / hospital.beds) * 100)) : 0;
+  const isProfessional = emergencySpacesSession?.role === "professional";
+  return `
+    <article class="emergency-space-card hospital-card">
+      <div class="emergency-space-card-head">
+        <div>
+          <h3>${escapeHtml(hospital.name)}</h3>
+          <p>${icon("mapPin")} ${escapeHtml(hospital.address || hospital.zone)}${distanceKm == null ? "" : ` · ${distanceKm.toFixed(1)} km away`}</p>
+        </div>
+        <div class="emergency-space-card-actions">
+          ${isNearest ? `<span class="nearest-space-badge">Nearest</span>` : ""}
+          <span class="emergency-space-badge is-ready">open</span>
+          ${isProfessional ? `<button class="secondary-button compact" type="button" data-edit-hospital="${escapeHtml(hospital.id)}">Edit</button>` : ""}
+        </div>
+      </div>
+      <p class="emergency-space-type">Hospital</p>
+      <div class="emergency-space-progress ${occupancyPercent > 85 ? "is-high" : ""}" aria-label="${occupancyPercent}% occupied">
+        <span style="width:${occupancyPercent}%"></span>
+      </div>
+      <div class="emergency-space-capacity-row">
+        <p><strong>${escapeHtml(occupancy)}</strong><span> / ${escapeHtml(hospital.beds)} occupied</span></p>
+      </div>
+      <dl class="emergency-space-stats">
+        <div><dt>Zone</dt><dd>${escapeHtml(hospital.zone)}</dd></div>
+        <div><dt>Distance</dt><dd>${distanceKm == null ? "Sort by location" : `${distanceKm.toFixed(2)} km`}</dd></div>
+      </dl>
+    </article>
+  `;
+}
+
+function emergencySpaceCard(space, { isNearest = false } = {}) {
   const isProfessional = emergencySpacesSession?.role === "professional";
   const isActive = space._active !== false;
+  const occupancyPercent = space.capacity ? Math.min(100, Math.round((space.currentOccupancy / space.capacity) * 100)) : 0;
+  const typeLabel = EMERGENCY_SPACE_TYPES.find((type) => type.value === space.type)?.label || space.type;
+  const distanceKm = distanceFromUser(emergencySpaceCoordinates(space));
+  const isHospital = emergencySpaceCategory(space) === "hospital";
   return `
     <article class="emergency-space-card${isActive ? "" : " space-inactive-dim"}">
       <div class="emergency-space-card-head">
         <div>
-          <h3>${space.name}</h3>
-          <p>${space.type}</p>
+          <h3>${escapeHtml(space.name)}</h3>
+          <p>${icon("mapPin")} ${space.address ? `${escapeHtml(space.address)} · ` : ""}${escapeHtml(space.region)}${distanceKm == null ? "" : ` · ${distanceKm.toFixed(1)} km away`}</p>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <span class="emergency-space-badge ${emergencySpaceBadgeClass(space.status)}">${space.status}</span>
-          ${isProfessional ? `<button class="secondary-button compact" type="button" data-toggle-space="${space.id}" style="font-size:0.75rem">${isActive ? "Set Inactive" : "Set Active"}</button>` : ""}
+        <div class="emergency-space-card-actions">
+          ${isNearest ? `<span class="nearest-space-badge">Nearest</span>` : ""}
+          <span class="emergency-space-badge ${emergencySpaceBadgeClass(space.status)}">${escapeHtml(emergencySpaceStatusLabel(space.status))}</span>
+          ${isProfessional ? `
+            <button class="secondary-button compact" type="button" data-edit-space="${space.id}">Edit</button>
+            ${isHospital ? "" : `<button class="secondary-button compact" type="button" data-toggle-space="${space.id}">${isActive ? "Set Inactive" : "Set Active"}</button>`}
+          ` : ""}
         </div>
       </div>
+      <p class="emergency-space-type">${escapeHtml(typeLabel)}</p>
+      <div class="emergency-space-progress ${occupancyPercent > 85 ? "is-high" : ""}" aria-label="${occupancyPercent}% occupied">
+        <span style="width:${occupancyPercent}%"></span>
+      </div>
+      <div class="emergency-space-capacity-row">
+        <p><strong>${escapeHtml(space.currentOccupancy)}</strong><span> / ${escapeHtml(space.capacity)} occupied</span></p>
+        ${isProfessional ? `
+          <div class="emergency-space-stepper" aria-label="Update occupancy for ${escapeHtml(space.name)}">
+            <button type="button" data-space-occupancy="${space.id}" data-delta="-10" aria-label="Decrease occupancy for ${escapeHtml(space.name)}">−</button>
+            <button type="button" data-space-occupancy="${space.id}" data-delta="10" aria-label="Increase occupancy for ${escapeHtml(space.name)}">+</button>
+          </div>
+        ` : ""}
+      </div>
       <dl class="emergency-space-stats">
-        <div><dt>Region</dt><dd>${space.region}</dd></div>
-        <div><dt>Current Status</dt><dd>${isActive ? space.status : "INACTIVE"}</dd></div>
-        <div><dt>Capacity</dt><dd>${space.capacity}</dd></div>
-        <div><dt>Current Occupancy</dt><dd>${space.currentOccupancy}</dd></div>
-        <div><dt>Available Capacity</dt><dd>${isActive ? space.availableCapacity : 0}</dd></div>
-        <div><dt>Setup Time</dt><dd>${space.setupTimeHours} hours</dd></div>
-        <div><dt>Wheelchair Access</dt><dd>${space.wheelchairAccess ? "Yes" : "No"}</dd></div>
+        <div><dt>Available Capacity</dt><dd>${escapeHtml(isActive ? space.availableCapacity : 0)}</dd></div>
+        <div><dt>Setup Time</dt><dd>${escapeHtml(space.setupTimeHours)} hours</dd></div>
+        <div><dt>Distance</dt><dd>${distanceKm == null ? "Sort by location" : `${distanceKm.toFixed(2)} km`}</dd></div>
       </dl>
     </article>
   `;
+}
+
+async function saveEmergencySpaceUpdate(spaceId, data) {
+  const response = await fetch(`/api/emergency-spaces/${encodeURIComponent(spaceId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Unable to update emergency space.");
+  const updated = decorateEmergencySpace(result.space);
+  emergencySpacesSeed = emergencySpacesSeed.map((space) => space.id === updated.id ? { ...updated } : space);
+  emergencySpacesState = emergencySpacesState.map((space) => space.id === updated.id ? { ...updated } : space);
+  return updated;
+}
+
+function bindEmergencySpaceForm() {
+  const form = document.querySelector("[data-add-emergency-space]");
+  if (!form) return;
+  const status = document.querySelector("[data-emergency-space-form-status]");
+  const title = form.querySelector("[data-space-form-title]");
+  const description = form.querySelector("[data-space-form-description]");
+  const submit = form.querySelector("[data-space-form-submit]");
+  const typeSelect = form.elements.type;
+  const useLocationButton = form.querySelector("[data-space-use-location]");
+
+  const setTypeOptions = (types, selectedValue = "Temporary Shelter") => {
+    if (!typeSelect) return;
+    typeSelect.innerHTML = types.map((type) => `<option value="${escapeHtml(type.value)}">${escapeHtml(type.label)}</option>`).join("");
+    typeSelect.value = selectedValue;
+  };
+
+  const resetForm = () => {
+    form.reset();
+    form.elements.spaceId.value = "";
+    form.elements.hospitalId.value = "";
+    form.elements.lat.value = "";
+    form.elements.lng.value = "";
+    setTypeOptions(EMERGENCY_SPACE_TYPES);
+    form.elements.type.disabled = false;
+    if (title) title.textContent = "Add Emergency Conversion Space";
+    if (description) description.textContent = "Add a shelter or hospital conversion space for live capacity tracking.";
+    if (submit) submit.innerHTML = `${icon("building")} Add Space`;
+    if (status) {
+      status.textContent = "";
+      status.classList.remove("error", "success");
+    }
+  };
+
+  form.querySelector("[data-reset-space-form]")?.addEventListener("click", resetForm);
+  useLocationButton?.addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      if (status) {
+        status.textContent = "Geolocation is not supported by this browser.";
+        status.classList.add("error");
+      }
+      return;
+    }
+    if (status) {
+      status.textContent = "Getting your location...";
+      status.classList.remove("error", "success");
+    }
+    useLocationButton.disabled = true;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        form.elements.lat.value = String(lat);
+        form.elements.lng.value = String(lng);
+        emergencySpacesUserLocation = { lat, lng };
+        try {
+          const response = await fetch(`/api/onemap/revgeocode?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
+          const result = await response.json();
+          if (response.ok && result.address) {
+            const address = formatReverseGeocodeAddress(result.address);
+            if (address) form.elements.address.value = address;
+          } else if (!form.elements.address.value) {
+            form.elements.address.value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          }
+        } catch (error) {
+          if (!form.elements.address.value) form.elements.address.value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        }
+        if (!form.elements.region.value) form.elements.region.value = "Current location";
+        if (status) {
+          status.textContent = "Location added to this space.";
+          status.classList.remove("error");
+          status.classList.add("success");
+        }
+        useLocationButton.disabled = false;
+      },
+      () => {
+        if (status) {
+          status.textContent = "Unable to get your location. Please enable location access or enter it manually.";
+          status.classList.add("error");
+        }
+        useLocationButton.disabled = false;
+      },
+      { enableHighAccuracy: true, timeout: 10_000 }
+    );
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submitButton = form.querySelector("button[type='submit']");
+    const formData = new FormData(form);
+    const spaceId = String(formData.get("spaceId") || "");
+    const hospitalId = String(formData.get("hospitalId") || "");
+    const payload = {
+      name: formData.get("name"),
+      type: formData.get("type") || "Temporary Shelter",
+      address: formData.get("address"),
+      region: formData.get("region"),
+      capacity: Number(formData.get("capacity")),
+      setupTimeHours: Number(formData.get("setupTimeHours") || 0),
+      wheelchairAccess: formData.get("wheelchairAccess") === "on",
+      status: "READY"
+    };
+    const rawLat = String(formData.get("lat") || "").trim();
+    const rawLng = String(formData.get("lng") || "").trim();
+    const lat = Number(rawLat);
+    const lng = Number(rawLng);
+    if (rawLat && rawLng && Number.isFinite(lat) && Number.isFinite(lng)) {
+      payload.lat = lat;
+      payload.lng = lng;
+    }
+    if (status) {
+      status.textContent = spaceId || hospitalId ? "Saving changes..." : "Adding emergency conversion space...";
+      status.classList.remove("error", "success");
+    }
+    if (submitButton) submitButton.disabled = true;
+    try {
+      if (hospitalId) {
+        emergencyHospitalsState = emergencyHospitalsState.map((hospital) => hospital.id === hospitalId
+          ? {
+            ...hospital,
+            name: String(payload.name || hospital.name).trim(),
+            address: String(payload.address || hospital.address || "").trim(),
+            zone: String(payload.region || hospital.zone).trim(),
+            beds: payload.capacity,
+            occupancy: Math.max(0, Math.min(payload.capacity, Number(formData.get("currentOccupancy")) || hospital.occupancy || 0)),
+            lat: payload.lat ?? hospital.lat,
+            lng: payload.lng ?? hospital.lng
+          }
+          : hospital);
+      } else {
+        const response = await fetch(spaceId ? `/api/emergency-spaces/${encodeURIComponent(spaceId)}` : "/api/emergency-spaces", {
+          method: spaceId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          const fieldErrors = result.fields ? Object.values(result.fields).filter(Boolean).join(" ") : "";
+          throw new Error(fieldErrors || result.error || "Unable to save emergency conversion space.");
+        }
+        const space = decorateEmergencySpace(result.space);
+        if (spaceId) {
+          emergencySpacesSeed = emergencySpacesSeed.map((item) => item.id === space.id ? { ...space } : item);
+          emergencySpacesState = emergencySpacesState.map((item) => item.id === space.id ? { ...space } : item);
+        } else {
+          emergencySpacesSeed = [...emergencySpacesSeed, { ...space }];
+          emergencySpacesState = [...emergencySpacesState, { ...space }];
+        }
+      }
+      resetForm();
+      form.hidden = true;
+      const toggle = document.querySelector("[data-toggle-space-form]");
+      if (toggle) toggle.innerHTML = `${icon("building")} Add Conversion Space`;
+      if (status) {
+        status.textContent = "";
+        status.classList.add("success");
+      }
+      renderEmergencySpaces();
+    } catch (error) {
+      if (status) {
+        status.textContent = error.message || "Unable to add emergency conversion space.";
+        status.classList.add("error");
+      }
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
+}
+
+function openEmergencySpaceFormForEdit(space) {
+  const form = document.querySelector("[data-add-emergency-space]");
+  const toggle = document.querySelector("[data-toggle-space-form]");
+  if (!form) return;
+  form.hidden = false;
+  if (toggle) toggle.innerHTML = `${icon("close")} Close Form`;
+  form.elements.spaceId.value = space.id;
+  form.elements.hospitalId.value = "";
+  form.elements.lat.value = Number.isFinite(Number(space.lat)) ? String(space.lat) : "";
+  form.elements.lng.value = Number.isFinite(Number(space.lng)) ? String(space.lng) : "";
+  form.elements.name.value = space.name || "";
+  form.elements.type.innerHTML = EMERGENCY_SPACE_TYPES.map((type) => `<option value="${escapeHtml(type.value)}">${escapeHtml(type.label)}</option>`).join("");
+  form.elements.type.value = space.type || EMERGENCY_SPACE_TYPES[0].value;
+  form.elements.type.disabled = false;
+  form.elements.address.value = space.address || "";
+  form.elements.region.value = space.region || "";
+  form.elements.capacity.value = space.capacity || "";
+  form.elements.setupTimeHours.value = space.setupTimeHours || 0;
+  form.elements.wheelchairAccess.checked = Boolean(space.wheelchairAccess);
+  form.querySelector("[data-space-form-title]").textContent = "Edit Emergency Conversion Space";
+  form.querySelector("[data-space-form-description]").textContent = "Update this conversion space profile and save it back to operations.";
+  form.querySelector("[data-space-form-submit]").innerHTML = `${icon("building")} Save Changes`;
+  const status = document.querySelector("[data-emergency-space-form-status]");
+  if (status) {
+    status.textContent = "";
+    status.classList.remove("error", "success");
+  }
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function openHospitalFormForEdit(hospital) {
+  const form = document.querySelector("[data-add-emergency-space]");
+  const toggle = document.querySelector("[data-toggle-space-form]");
+  if (!form) return;
+  form.hidden = false;
+  if (toggle) toggle.innerHTML = `${icon("close")} Close Form`;
+  form.elements.spaceId.value = "";
+  form.elements.hospitalId.value = hospital.id;
+  form.elements.lat.value = Number.isFinite(Number(hospital.lat)) ? String(hospital.lat) : "";
+  form.elements.lng.value = Number.isFinite(Number(hospital.lng)) ? String(hospital.lng) : "";
+  form.elements.name.value = hospital.name || "";
+  form.elements.type.innerHTML = EMERGENCY_SPACE_TYPES.map((type) => `<option value="${escapeHtml(type.value)}">${escapeHtml(type.label)}</option>`).join("");
+  form.elements.type.value = "Hospital";
+  form.elements.type.disabled = true;
+  form.elements.address.value = hospital.address || "";
+  form.elements.region.value = hospital.zone || "";
+  form.elements.capacity.value = hospital.beds || "";
+  form.elements.setupTimeHours.value = 0;
+  form.elements.wheelchairAccess.checked = true;
+  form.querySelector("[data-space-form-title]").textContent = "Edit Hospital";
+  form.querySelector("[data-space-form-description]").textContent = "Update hospital details and bed capacity shown in Emergency Spaces.";
+  form.querySelector("[data-space-form-submit]").innerHTML = `${icon("building")} Save Changes`;
+  const status = document.querySelector("[data-emergency-space-form-status]");
+  if (status) {
+    status.textContent = "";
+    status.classList.remove("error", "success");
+  }
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function bindEmergencySpaceControls() {
+  document.querySelector("[data-toggle-space-form]")?.addEventListener("click", () => {
+    const form = document.querySelector("[data-add-emergency-space]");
+    const button = document.querySelector("[data-toggle-space-form]");
+    if (!form || !button) return;
+    const willOpen = form.hidden;
+    form.hidden = !form.hidden;
+    if (willOpen) {
+      form.reset();
+      form.elements.spaceId.value = "";
+      form.elements.hospitalId.value = "";
+      form.elements.lat.value = "";
+      form.elements.lng.value = "";
+      form.elements.type.innerHTML = EMERGENCY_SPACE_TYPES.map((type) => `<option value="${escapeHtml(type.value)}">${escapeHtml(type.label)}</option>`).join("");
+      form.elements.type.value = "Temporary Shelter";
+      form.elements.type.disabled = false;
+      form.querySelector("[data-space-form-title]").textContent = "Add Emergency Conversion Space";
+      form.querySelector("[data-space-form-description]").textContent = "Add a shelter or hospital conversion space for live capacity tracking.";
+      form.querySelector("[data-space-form-submit]").innerHTML = `${icon("building")} Add Space`;
+    }
+    button.innerHTML = form.hidden
+      ? `${icon("building")} Add Conversion Space`
+      : `${icon("close")} Close Form`;
+  });
+
+  document.querySelectorAll("[data-space-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      emergencySpacesFilter = button.dataset.spaceFilter || "all";
+      document.querySelectorAll("[data-space-filter]").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      renderEmergencySpaces();
+    });
+  });
+}
+
+function emergencySpaceGridItems() {
+  const hospitals = emergencyHospitalsState.map((hospital) => ({
+    kind: "hospital",
+    category: "hospital",
+    distanceKm: distanceFromUser({ lat: hospital.lat, lng: hospital.lng }),
+    value: hospital
+  }));
+  const spaces = emergencySpacesState.map((space) => ({
+    kind: "space",
+    category: emergencySpaceCategory(space),
+    distanceKm: distanceFromUser(emergencySpaceCoordinates(space)),
+    value: space
+  }));
+
+  const sortedItems = [...hospitals, ...spaces]
+    .filter((item) => emergencySpacesFilter === "all" || item.category === emergencySpacesFilter)
+    .sort((a, b) => {
+      const aDistance = a.distanceKm ?? Number.POSITIVE_INFINITY;
+      const bDistance = b.distanceKm ?? Number.POSITIVE_INFINITY;
+      if (aDistance !== bDistance) return aDistance - bDistance;
+      const priority = { hospital: 0, shelter: 1 };
+      return (priority[a.category] ?? 9) - (priority[b.category] ?? 9);
+    });
+  const nearestHospitalIndex = emergencySpacesUserLocation
+    ? sortedItems.findIndex((item) => item.kind === "hospital")
+    : -1;
+  const nearestShelterIndex = emergencySpacesUserLocation
+    ? sortedItems.findIndex((item) => item.kind === "space" && item.category === "shelter")
+    : -1;
+
+  return sortedItems.map((item, index) => ({
+    ...item,
+    markup: item.kind === "hospital"
+      ? hospitalCard(item.value, { isNearest: index === nearestHospitalIndex })
+      : emergencySpaceCard(item.value, { isNearest: index === nearestShelterIndex })
+  }));
 }
 
 function renderEmergencySpaces() {
@@ -1583,24 +3183,71 @@ function renderEmergencySpaces() {
   const message = document.querySelector("[data-emergency-spaces-message]");
   if (!grid || !message) return;
 
-  if (!emergencySpacesState.length) {
-    message.textContent = "Emergency space seed data is unavailable.";
+  const items = emergencySpaceGridItems();
+  if (!items.length) {
+    message.textContent = "No spaces in this category.";
     grid.innerHTML = "";
     return;
   }
 
+  const filterLabel = emergencySpacesFilter === "all" ? "all emergency spaces" : `${emergencySpacesFilter} spaces`;
   message.textContent = simulationState.activeScenario
     ? `Shelter demand from ${simulationState.activeScenario.name} has been allocated automatically across emergency spaces.`
-    : "Showing all emergency conversion spaces. Spaces marked inactive are not available for use.";
-  grid.innerHTML = emergencySpacesState.map(emergencySpaceCard).join("");
+    : emergencySpacesUserLocation
+      ? `Showing ${filterLabel}, ordered by nearest first.`
+      : `Showing ${filterLabel}. Use “Nearest to me” to sort by your location.`;
+  grid.innerHTML = items.map((item) => item.markup).join("");
+
+  grid.querySelectorAll("[data-edit-space]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = Number(button.dataset.editSpace);
+      const space = emergencySpacesState.find((s) => s.id === id);
+      if (space) openEmergencySpaceFormForEdit(space);
+    });
+  });
+
+  grid.querySelectorAll("[data-edit-hospital]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const hospital = emergencyHospitalsState.find((item) => item.id === button.dataset.editHospital);
+      if (hospital) openHospitalFormForEdit(hospital);
+    });
+  });
 
   grid.querySelectorAll("[data-toggle-space]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const id = Number(button.dataset.toggleSpace);
       const space = emergencySpacesState.find((s) => s.id === id);
       if (space) {
-        space._active = space._active === false ? true : false;
+        button.disabled = true;
+        try {
+          await saveEmergencySpaceUpdate(id, {
+            status: space._active === false ? "READY" : "INACTIVE",
+            currentOccupancy: space.currentOccupancy
+          });
+          renderEmergencySpaces();
+        } catch (error) {
+          message.textContent = error.message || "Unable to update emergency space.";
+        }
+      }
+    });
+  });
+
+  grid.querySelectorAll("[data-space-occupancy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = Number(button.dataset.spaceOccupancy);
+      const delta = Number(button.dataset.delta) || 0;
+      const space = emergencySpacesState.find((s) => s.id === id);
+      if (!space) return;
+      const currentOccupancy = Math.max(0, Math.min(space.capacity, space.currentOccupancy + delta));
+      button.disabled = true;
+      try {
+        await saveEmergencySpaceUpdate(id, {
+          status: space._active === false ? "INACTIVE" : "READY",
+          currentOccupancy
+        });
         renderEmergencySpaces();
+      } catch (error) {
+        message.textContent = error.message || "Unable to update emergency space.";
       }
     });
   });
@@ -1926,8 +3573,23 @@ function currentVolunteerSessionProfile(session) {
   return volunteerDispatchState.volunteers.find((volunteer) => volunteer.email === session?.email) || null;
 }
 
+function volunteerStatusLabel(status) {
+  return status === "Off Duty" ? "Unavailable" : status;
+}
+
+function volunteerIsDispatched(volunteer) {
+  return Boolean(volunteer.assignedIncidentId) && ["Assigned", "En Route", "On Site"].includes(volunteer.status);
+}
+
 function volunteerStatusBadge(status) {
-  return `<span class="volunteer-status-badge is-${status.toLowerCase().replace(/\s+/g, "-")}">${status}</span>`;
+  return `<span class="volunteer-status-badge is-${status.toLowerCase().replace(/\s+/g, "-")}">${volunteerStatusLabel(status).toLowerCase()}</span>`;
+}
+
+function volunteerLocationText(volunteer) {
+  if (volunteer.locationVerified) return volunteer.currentLocationLabel;
+  return volunteer.currentLocationLabel
+    ? `${volunteer.zone} · ${volunteer.currentLocationLabel}`
+    : volunteer.zone;
 }
 
 function volunteerDistanceKm(volunteer, scenario) {
@@ -1960,6 +3622,13 @@ function volunteerMatchScore(volunteer, scenario) {
 function filteredVolunteers() {
   const { skill, zone, availability, status } = volunteerDispatchState.filters;
   let volunteers = [...volunteerDispatchState.volunteers];
+  const scenario = simulationScenarios.find((item) => item.id === volunteerDispatchState.selectedIncidentId);
+
+  if (scenario && !status) {
+    volunteers = scenario.status === "Completed"
+      ? volunteers.filter((volunteer) => volunteer.status === "Completed" && volunteer.assignedIncidentId === scenario.id)
+      : volunteers.filter((volunteer) => volunteer.status !== "Completed");
+  }
   if (skill) {
     const needle = skill.toLowerCase();
     volunteers = volunteers.filter((volunteer) => volunteer.skills.some((item) => item.toLowerCase().includes(needle)));
@@ -1967,17 +3636,16 @@ function filteredVolunteers() {
   if (zone) volunteers = volunteers.filter((volunteer) => volunteer.zone === zone);
   if (availability) volunteers = volunteers.filter((volunteer) => volunteer.availability === availability);
   if (status) volunteers = volunteers.filter((volunteer) => volunteer.status === status);
-  if (volunteerDispatchState.smartMatchActive) {
-    const scenario = simulationScenarios.find((item) => item.id === volunteerDispatchState.selectedIncidentId);
-    volunteerDispatchState.smartMatchScores = new Map();
-    if (scenario) {
-      volunteers.forEach((volunteer) => {
+  volunteerDispatchState.smartMatchScores = new Map();
+  if (scenario) {
+    volunteers.forEach((volunteer) => {
+      if (volunteer.availability === "Available" && volunteer.status === "Available") {
         volunteerDispatchState.smartMatchScores.set(volunteer.id, volunteerMatchScore(volunteer, scenario));
-      });
-    }
+      }
+    });
   }
-  if (volunteerDispatchState.smartMatchActive && volunteerDispatchState.smartMatchScores.size) {
-    volunteers.sort((a, b) => (volunteerDispatchState.smartMatchScores.get(b.id)?.score || -999) - (volunteerDispatchState.smartMatchScores.get(a.id)?.score || -999));
+  if (scenario && volunteerDispatchState.smartMatchScores.size) {
+    volunteers.sort((a, b) => (volunteerDispatchState.smartMatchScores.get(b.id)?.score ?? -999) - (volunteerDispatchState.smartMatchScores.get(a.id)?.score ?? -999));
   } else {
     volunteers.sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -2028,18 +3696,6 @@ async function deployVolunteerToIncident(id, incidentId) {
   return result;
 }
 
-async function respondToDeployment(id, action) {
-  const response = await fetch(`/api/volunteers/${id}/respond`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ response: action })
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Unable to respond to deployment.");
-  await fetchVolunteers();
-  return result;
-}
-
 async function updateVolunteerWorkflowStatus(id, status) {
   const response = await fetch(`/api/volunteers/${id}/status`, {
     method: "POST",
@@ -2052,51 +3708,86 @@ async function updateVolunteerWorkflowStatus(id, status) {
   return result;
 }
 
+async function completeDispatchIncident(incidentId) {
+  const response = await fetch(`/api/simulation/scenarios/${encodeURIComponent(incidentId)}/complete`, {
+    method: "POST"
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Unable to complete incident.");
+  await Promise.all([fetchSimulationScenarios(), fetchVolunteers()]);
+  return result;
+}
+
 function volunteerZoneOptions(selected = "") {
-  return `<option value="">All zones</option>${DISPATCH_ZONES.map((zone) => `<option value="${zone}"${zone === selected ? " selected" : ""}>${zone}</option>`).join("")}`;
+  const incidentZones = [...new Set(simulationScenarios.map((scenario) => scenario.zone).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  return `<option value="">All incident zones</option>${incidentZones.map((zone) => `<option value="${zone}"${zone === selected ? " selected" : ""}>${zone}</option>`).join("")}`;
 }
 
 function professionalDispatchCard(volunteer) {
   const score = volunteerDispatchState.smartMatchScores.get(volunteer.id);
-  const incidentSelected = Boolean(volunteerDispatchState.selectedIncidentId);
-  const canDeploy = incidentSelected && volunteer.availability === "Available" && volunteer.status === "Available";
+  const selectedIncident = simulationScenarios.find((scenario) => scenario.id === volunteerDispatchState.selectedIncidentId);
+  const incidentSelected = Boolean(selectedIncident);
+  const incidentCompleted = selectedIncident?.status === "Completed";
+  const canDeploy = incidentSelected && !incidentCompleted && volunteer.availability === "Available" && volunteer.status === "Available";
+  const isDispatched = volunteerIsDispatched(volunteer);
+  const location = volunteerLocationText(volunteer);
+  const dispatchUnavailableReason = !incidentSelected
+    ? "Select an incident to dispatch this volunteer."
+    : incidentCompleted
+      ? "This incident is completed and no longer accepts dispatches."
+    : volunteer.availability !== "Available"
+      ? "Unavailable volunteers cannot be dispatched."
+      : volunteer.status !== "Available"
+        ? `This volunteer is currently ${volunteerStatusLabel(volunteer.status).toLowerCase()}.`
+        : "";
   return `
     <article class="dispatch-volunteer-card">
       <div class="dispatch-volunteer-top">
         <div>
-          <h3>${volunteer.name}</h3>
-          <p>${volunteer.zone} · ${volunteer.currentLocationLabel}</p>
+          <h3>${escapeHtml(volunteer.name)}</h3>
+          <p>${icon("mapPin")} ${escapeHtml(location)}</p>
         </div>
-        <div class="dispatch-volunteer-badges">
-          ${volunteerStatusBadge(volunteer.availability)}
-          ${volunteerStatusBadge(volunteer.status)}
-        </div>
+        ${volunteerStatusBadge(volunteer.status)}
       </div>
-      <p class="dispatch-volunteer-skills"><strong>Skills:</strong> ${volunteer.skills.length ? volunteer.skills.join(", ") : "General support"}</p>
-      ${score ? `<p class="dispatch-volunteer-match"><strong>Smart Match:</strong> ${score.score} pts · ${score.skillMatches} skill matches · ${score.distanceKm} km away</p>` : ""}
-      ${volunteer.assignedIncidentName ? `<div class="dispatch-assignment-box"><strong>Assigned:</strong> ${volunteer.assignedIncidentName}<br /><span>${volunteer.assignedTask || "Task pending"}</span></div>` : ""}
+      <div class="dispatch-skill-list">
+        ${(volunteer.skills.length ? volunteer.skills : ["General support"]).map((skill) => `<span>${escapeHtml(skill)}</span>`).join("")}
+      </div>
+      ${score ? `<p class="dispatch-volunteer-match"><strong>Auto match:</strong> ${escapeHtml(score.score)} pts · ${escapeHtml(score.skillMatches)} skill matches · ${escapeHtml(score.distanceKm)} km away</p>` : ""}
+      ${volunteer.assignedIncidentName ? `<p class="dispatch-assigned-line">${icon("arrowRight")} Dispatched to: ${escapeHtml(volunteer.assignedIncidentName)}</p>` : ""}
       ${volunteer.notificationMessage ? `<p class="dispatch-notification">${volunteer.notificationMessage}</p>` : ""}
       <div class="dispatch-volunteer-actions">
-        <button class="secondary-button compact" type="button" data-deploy-volunteer="${volunteer.id}"${canDeploy ? "" : " disabled"}>Deploy</button>
-        <select data-professional-status-select="${volunteer.id}">
-          ${VOLUNTEER_STATUSES.map((status) => `<option value="${status}"${status === volunteer.status ? " selected" : ""}>${status}</option>`).join("")}
-        </select>
-        <button class="secondary-button compact" type="button" data-update-volunteer-status="${volunteer.id}">Update Status</button>
+        ${isDispatched
+          ? `<button class="secondary-button compact dispatch-recall-button" type="button" data-recall-volunteer="${volunteer.id}">${icon("activity")} Recall</button>`
+          : volunteer.status === "Completed"
+            ? `<p class="dispatch-unavailable-note">Deployment completed when ${escapeHtml(volunteer.assignedIncidentName || "the incident")} ended.</p>`
+          : canDeploy
+            ? `<button class="form-button dispatch-deploy-button" type="button" data-deploy-volunteer="${volunteer.id}">${icon("arrowRight")} Dispatch</button>`
+            : `<p class="dispatch-unavailable-note">${escapeHtml(dispatchUnavailableReason)}</p>`}
       </div>
     </article>
   `;
 }
 
 function renderProfessionalVolunteerDispatch() {
+  const selectedIncident = simulationScenarios.find((scenario) => scenario.id === volunteerDispatchState.selectedIncidentId);
   const incidentOptions = simulationScenarios.length
-    ? simulationScenarios.map((scenario) => `<option value="${scenario.id}"${scenario.id === volunteerDispatchState.selectedIncidentId ? " selected" : ""}>${scenario.name}</option>`).join("")
+    ? simulationScenarios.map((scenario) => `<option value="${scenario.id}"${scenario.id === volunteerDispatchState.selectedIncidentId ? " selected" : ""}>${scenario.name}${scenario.status === "Completed" ? " — Completed" : ""}</option>`).join("")
     : `<option value="">No incidents loaded</option>`;
-  const volunteers = filteredVolunteers().filter((v) => VOLUNTEER_AVAILABILITY.includes(v.status));
+  const volunteers = filteredVolunteers();
+  const availableCount = volunteerDispatchState.volunteers.filter((volunteer) => volunteer.availability === "Available" && volunteer.status === "Available").length;
+  const dispatchedCount = volunteerDispatchState.volunteers.filter(volunteerIsDispatched).length;
   return `
     <section class="volunteer-dispatch-panel">
+      <div class="dispatch-board-heading">
+        <div>
+          <h3>Volunteer Dispatch</h3>
+          <p>${availableCount} available · ${dispatchedCount} dispatched · ${volunteerDispatchState.volunteers.length} registered</p>
+        </div>
+      </div>
       <div class="dispatch-toolbar">
         <div class="dispatch-toolbar-grid">
-          <label>Active incident
+          <label>Incident
             <select data-dispatch-incident-select>
               <option value="">Select incident</option>
               ${incidentOptions}
@@ -2111,22 +3802,24 @@ function renderProfessionalVolunteerDispatch() {
           <label>Availability
             <select data-filter-availability>
               <option value="">All</option>
-              ${VOLUNTEER_AVAILABILITY.map((value) => `<option value="${value}"${value === volunteerDispatchState.filters.availability ? " selected" : ""}>${value}</option>`).join("")}
+              ${VOLUNTEER_SELF_AVAILABILITY.map((option) => `<option value="${option.value}"${option.value === volunteerDispatchState.filters.availability ? " selected" : ""}>${option.label}</option>`).join("")}
             </select>
           </label>
           <label>Status
             <select data-filter-status>
               <option value="">All</option>
-              ${VOLUNTEER_AVAILABILITY.map((value) => `<option value="${value}"${value === volunteerDispatchState.filters.status ? " selected" : ""}>${value}</option>`).join("")}
+              ${VOLUNTEER_STATUSES.map((value) => `<option value="${value}"${value === volunteerDispatchState.filters.status ? " selected" : ""}>${volunteerStatusLabel(value)}</option>`).join("")}
             </select>
           </label>
         </div>
         <div class="dispatch-toolbar-actions">
-          <button class="secondary-button compact" type="button" data-smart-match${volunteerDispatchState.selectedIncidentId ? "" : " disabled"}>Smart Match</button>
+          ${selectedIncident && selectedIncident.status !== "Completed"
+            ? `<button class="secondary-button compact" type="button" data-complete-dispatch-incident>Complete Incident</button>`
+            : ""}
           <button class="secondary-button compact" type="button" data-reset-volunteer-filters>Reset Filters</button>
         </div>
       </div>
-      <p class="dispatch-panel-note">Smart Match ranks volunteers by current availability, scenario skill fit, and zone-based distance.</p>
+      <p class="dispatch-panel-note">Selecting an incident automatically ranks volunteers by availability, relevant skills, and distance. Completed appears only after the whole incident is ended, which completes every assigned volunteer deployment together.</p>
       <div class="dispatch-volunteer-grid">
         ${volunteers.length ? volunteers.map(professionalDispatchCard).join("") : `<p class="dispatch-empty">No volunteers match the current filters.</p>`}
       </div>
@@ -2137,6 +3830,46 @@ function renderProfessionalVolunteerDispatch() {
 function publicVolunteerProfileForm(session, volunteer) {
   const isExisting = Boolean(volunteer);
   const availability = volunteer?.availability || "Available";
+  if (isExisting) {
+    return `
+      <section class="volunteer-dispatch-panel">
+        <div class="dispatch-public-layout">
+          <article class="dispatch-volunteer-card dispatch-self-card">
+            <div class="dispatch-volunteer-top">
+              <div>
+                <h3>${escapeHtml(volunteer.name)}</h3>
+                <p>${icon("mapPin")} ${escapeHtml(volunteerLocationText(volunteer))}</p>
+              </div>
+              ${volunteerStatusBadge(volunteer.availability)}
+            </div>
+            <div class="dispatch-skill-list">
+              ${(volunteer.skills.length ? volunteer.skills : ["General support"]).map((skill) => `<span>${escapeHtml(skill)}</span>`).join("")}
+            </div>
+            <div class="dispatch-self-status">
+              <h4>My availability</h4>
+              <p>Choose one status. Coordinators can dispatch you only when you are available.</p>
+              <div class="dispatch-availability-toggle" role="group" aria-label="Volunteer availability">
+                ${VOLUNTEER_SELF_AVAILABILITY.map((option) => `
+                  <button
+                    class="${option.value === volunteer.availability ? "active" : ""}"
+                    type="button"
+                    data-self-availability="${escapeHtml(option.value)}"
+                    data-volunteer-id="${volunteer.id}">
+                    ${escapeHtml(option.label)}
+                  </button>
+                `).join("")}
+              </div>
+              <p class="form-status dispatch-status-message" role="status"></p>
+            </div>
+          </article>
+          <div class="dispatch-assignment-panel">
+            <h3>Assigned Task</h3>
+            ${publicVolunteerAssignment(volunteer)}
+          </div>
+        </div>
+      </section>
+    `;
+  }
   return `
     <section class="volunteer-dispatch-panel">
       <div class="dispatch-public-layout">
@@ -2158,7 +3891,8 @@ function publicVolunteerProfileForm(session, volunteer) {
               </select>
             </label>
             <label class="dispatch-form-span">Current location
-              <input name="currentLocationLabel" type="text" value="${escapeHtml(volunteer?.currentLocationLabel || "")}" placeholder="Community club or landmark" required />
+              <input name="currentLocationLabel" type="text" value="${escapeHtml(volunteer?.currentLocationLabel || "")}" placeholder="6-digit postal code, community club, or landmark" required />
+              <small>Enter a Singapore postal code for precise OneMap coordinates and dispatch distance.</small>
             </label>
             <label class="dispatch-form-span">Skills
               <input name="skills" type="text" value="${escapeHtml((volunteer?.skills || []).join(", "))}" placeholder="First aid, driving, translation" />
@@ -2167,7 +3901,7 @@ function publicVolunteerProfileForm(session, volunteer) {
           <div class="dispatch-form-row">
             <label>Availability
               <select name="availability">
-                ${VOLUNTEER_AVAILABILITY.map((value) => `<option value="${value}"${value === availability ? " selected" : ""}>${value}</option>`).join("")}
+                ${VOLUNTEER_SELF_AVAILABILITY.map((option) => `<option value="${option.value}"${option.value === availability ? " selected" : ""}>${option.label}</option>`).join("")}
               </select>
             </label>
             <button class="secondary-button compact" type="submit">${isExisting ? "Save Profile" : "Create Profile"}</button>
@@ -2184,52 +3918,73 @@ function publicVolunteerProfileForm(session, volunteer) {
 }
 
 function publicVolunteerAssignment(volunteer) {
+  const guidance = {
+    Assigned: {
+      heading: "What to do now",
+      text: "Review the assigned task, prepare the required equipment, and wait for departure instructions from the coordinator."
+    },
+    "En Route": {
+      heading: "What to do now",
+      text: "Travel safely to the incident location. Follow the recommended route and notify the coordinator if you are delayed."
+    },
+    "On Site": {
+      heading: "What to do now",
+      text: "Check in with the on-site coordinator, follow safety instructions, and begin the assigned task."
+    },
+    Completed: {
+      heading: "Deployment completed",
+      text: "The whole incident has ended. No further action is required for this deployment."
+    }
+  }[volunteer.status];
   const task = volunteer.assignedIncidentName
     ? `
       <div class="dispatch-assignment-box">
+        <p class="dispatch-banner success">${volunteer.status === "Completed" ? "Deployment update received." : "Dispatch update received from the emergency coordination team."}</p>
         <strong>${volunteer.assignedIncidentName}</strong>
         <p>${volunteer.assignedTask || "Task pending assignment details."}</p>
-        <p><strong>Status:</strong> ${volunteer.status}</p>
+        <p><strong>Status:</strong> ${volunteerStatusLabel(volunteer.status)}</p>
+        ${guidance ? `
+          <div class="dispatch-volunteer-guidance">
+            <strong>${guidance.heading}</strong>
+            <p>${guidance.text}</p>
+          </div>
+        ` : ""}
         ${volunteer.notificationMessage ? `<p class="dispatch-notification">${volunteer.notificationMessage}</p>` : ""}
       </div>
     `
-    : `<p class="dispatch-empty">No active deployment. Coordinators will assign tasks here when needed.</p>`;
-  const selfStatusSection = `
-    <div class="dispatch-self-status">
-      <h4>My Status</h4>
-      <p>Current: <strong>${volunteer.status}</strong></p>
-      <div class="dispatch-inline-actions">
-        <select data-self-status-select>
-          ${VOLUNTEER_AVAILABILITY.map((s) => `<option value="${s}"${s === volunteer.status ? " selected" : ""}>${s}</option>`).join("")}
-        </select>
-        <button class="secondary-button compact" type="button" data-self-status-update="${volunteer.id}">Update My Status</button>
-      </div>
-    </div>
-  `;
-  return `${task}${publicVolunteerAssignmentActions(volunteer)}${selfStatusSection}`;
+    : `
+      <p class="dispatch-empty">No active deployment. Coordinators will assign tasks here when needed.</p>
+      ${volunteer.notificationMessage ? `<p class="dispatch-notification dispatch-latest-update">${volunteer.notificationMessage}</p>` : ""}
+    `;
+  return task;
 }
 
-function publicVolunteerAssignmentActions(volunteer) {
-  if (!volunteer.assignedIncidentId) return "";
-  if (volunteer.deploymentResponsePending) {
-    return `
-      <div class="dispatch-inline-actions">
-        <button class="secondary-button compact" type="button" data-volunteer-respond="accept" data-volunteer-id="${volunteer.id}">Accept Deployment</button>
-        <button class="secondary-button compact" type="button" data-volunteer-respond="reject" data-volunteer-id="${volunteer.id}">Reject Deployment</button>
-      </div>
-    `;
+function volunteerAssignmentSignature(volunteer) {
+  if (!volunteer) return "";
+  return JSON.stringify({
+    assignedIncidentId: volunteer.assignedIncidentId,
+    assignedIncidentName: volunteer.assignedIncidentName,
+    assignedTask: volunteer.assignedTask,
+    status: volunteer.status,
+    notificationMessage: volunteer.notificationMessage
+  });
+}
+
+async function refreshPublicVolunteerDispatch(session) {
+  if (window.location.hash !== "#/volunteer-dispatch" || session?.role === "professional") return;
+  const before = volunteerAssignmentSignature(currentVolunteerSessionProfile(session));
+  try {
+    await fetchVolunteers();
+    const after = volunteerAssignmentSignature(currentVolunteerSessionProfile(session));
+    if (before !== after) renderVolunteerDispatchSection(session);
+  } catch (error) {
+    // Keep the current profile visible and retry on the next poll.
   }
-  if (volunteer.status === "Assigned") return `<button class="secondary-button compact" type="button" data-volunteer-progress="En Route" data-volunteer-id="${volunteer.id}">Mark En Route</button>`;
-  if (volunteer.status === "En Route") return `<button class="secondary-button compact" type="button" data-volunteer-progress="On Site" data-volunteer-id="${volunteer.id}">Mark Arrived / On Site</button>`;
-  if (volunteer.status === "On Site") return `<button class="secondary-button compact" type="button" data-volunteer-progress="Completed" data-volunteer-id="${volunteer.id}">Mark Completed</button>`;
-  if (volunteer.status === "Completed") return `<button class="secondary-button compact" type="button" data-volunteer-progress="Available" data-volunteer-id="${volunteer.id}">Set Available Again</button>`;
-  return "";
 }
 
 function bindProfessionalVolunteerDispatch() {
   document.querySelector("[data-dispatch-incident-select]")?.addEventListener("change", (event) => {
     volunteerDispatchState.selectedIncidentId = event.currentTarget.value;
-    volunteerDispatchState.smartMatchActive = false;
     volunteerDispatchState.smartMatchScores = new Map();
     renderVolunteerDispatchSection(readStoredSession());
   });
@@ -2243,22 +3998,25 @@ function bindProfessionalVolunteerDispatch() {
       renderVolunteerDispatchSection(readStoredSession());
     });
   });
-  document.querySelector("[data-smart-match]")?.addEventListener("click", () => {
-    const scenario = simulationScenarios.find((item) => item.id === volunteerDispatchState.selectedIncidentId);
+  document.querySelector("[data-reset-volunteer-filters]")?.addEventListener("click", () => {
+    volunteerDispatchState.selectedIncidentId = "";
+    volunteerDispatchState.filters = { skill: "", zone: "", availability: "", status: "" };
     volunteerDispatchState.smartMatchScores = new Map();
-    if (scenario) {
-      volunteerDispatchState.volunteers.forEach((volunteer) => {
-        volunteerDispatchState.smartMatchScores.set(volunteer.id, volunteerMatchScore(volunteer, scenario));
-      });
-      volunteerDispatchState.smartMatchActive = true;
-    }
     renderVolunteerDispatchSection(readStoredSession());
   });
-  document.querySelector("[data-reset-volunteer-filters]")?.addEventListener("click", () => {
-    volunteerDispatchState.filters = { skill: "", zone: "", availability: "", status: "" };
-    volunteerDispatchState.smartMatchActive = false;
-    volunteerDispatchState.smartMatchScores = new Map();
-    renderVolunteerDispatchSection(readStoredSession());
+  document.querySelector("[data-complete-dispatch-incident]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = "Completing incident...";
+    try {
+      await completeDispatchIncident(volunteerDispatchState.selectedIncidentId);
+      renderVolunteerDispatchSection(readStoredSession());
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = "Complete Incident";
+      const content = document.querySelector("[data-volunteer-dispatch-content]");
+      if (content) content.prepend(Object.assign(document.createElement("p"), { className: "dispatch-banner error", textContent: error.message }));
+    }
   });
   document.querySelectorAll("[data-deploy-volunteer]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -2271,13 +4029,10 @@ function bindProfessionalVolunteerDispatch() {
       }
     });
   });
-  document.querySelectorAll("[data-update-volunteer-status]").forEach((button) => {
+  document.querySelectorAll("[data-recall-volunteer]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const volunteerId = Number(button.dataset.updateVolunteerStatus);
-      const select = document.querySelector(`[data-professional-status-select="${volunteerId}"]`);
-      if (!select) return;
       try {
-        await updateVolunteerWorkflowStatus(volunteerId, select.value);
+        await updateVolunteerWorkflowStatus(Number(button.dataset.recallVolunteer), "Available");
         renderVolunteerDispatchSection(readStoredSession());
       } catch (error) {
         const content = document.querySelector("[data-volunteer-dispatch-content]");
@@ -2312,43 +4067,11 @@ function bindPublicVolunteerDispatch(session) {
     }
   });
 
-  document.querySelectorAll("[data-volunteer-respond]").forEach((button) => {
+  document.querySelectorAll("[data-self-availability]").forEach((button) => {
     button.addEventListener("click", async () => {
+      const volunteerId = Number(button.dataset.volunteerId);
       try {
-        await respondToDeployment(Number(button.dataset.volunteerId), button.dataset.volunteerRespond);
-        renderVolunteerDispatchSection(session);
-      } catch (error) {
-        const status = document.querySelector(".dispatch-status-message");
-        if (status) {
-          status.textContent = error.message;
-          status.classList.add("error");
-        }
-      }
-    });
-  });
-
-  document.querySelectorAll("[data-volunteer-progress]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        await updateVolunteerWorkflowStatus(Number(button.dataset.volunteerId), button.dataset.volunteerProgress);
-        renderVolunteerDispatchSection(session);
-      } catch (error) {
-        const status = document.querySelector(".dispatch-status-message");
-        if (status) {
-          status.textContent = error.message;
-          status.classList.add("error");
-        }
-      }
-    });
-  });
-
-  document.querySelectorAll("[data-self-status-update]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const volunteerId = Number(button.dataset.selfStatusUpdate);
-      const select = document.querySelector("[data-self-status-select]");
-      if (!select) return;
-      try {
-        await updateVolunteerWorkflowStatus(volunteerId, select.value);
+        await patchVolunteerProfile(volunteerId, { availability: button.dataset.selfAvailability });
         renderVolunteerDispatchSection(session);
       } catch (error) {
         const statusEl = document.querySelector(".dispatch-status-message");
@@ -2370,6 +4093,10 @@ function renderVolunteerDispatchSection(session) {
     bindProfessionalVolunteerDispatch();
     return;
   }
+  if (session?.role !== "volunteer") {
+    container.innerHTML = `<p class="dispatch-empty">Sign in with a volunteer account to manage availability and assignments.</p>`;
+    return;
+  }
   container.innerHTML = publicVolunteerProfileForm(session, currentVolunteerSessionProfile(session));
   bindPublicVolunteerDispatch(session);
 }
@@ -2387,10 +4114,14 @@ async function showVolunteerDispatchSection(session) {
     if (container) container.innerHTML = `<p class="dispatch-empty error">${error.message}</p>`;
     return;
   }
-  if (!volunteerDispatchState.selectedIncidentId && simulationScenarios.length) {
-    volunteerDispatchState.selectedIncidentId = simulationScenarios[0].id;
-  }
   renderVolunteerDispatchSection(session);
+  if (session?.role === "volunteer") {
+    if (volunteerDispatchTimer) window.clearInterval(volunteerDispatchTimer);
+    volunteerDispatchTimer = window.setInterval(
+      () => refreshPublicVolunteerDispatch(session),
+      3_000
+    );
+  }
 }
 
 const SEVERITY_ORDER = ["Extreme", "Severe", "Moderate", "Minor"];
@@ -2711,7 +4442,7 @@ async function renderFloodMap() {
     active: "flood",
     session,
     content: `
-      <section class="flood-map-shell ops-feature-shell">
+      <section class="flood-map-shell hazard-map-shell ops-feature-shell">
         <section class="dashboard-title">
           <div>
             <p class="eyebrow">Live map · OneMap basemap + PUB flood alerts + NEA dengue clusters</p>
@@ -2734,7 +4465,7 @@ async function renderFloodMap() {
             </ul>
           </div>
           <aside class="flood-alert-rail" aria-label="Active flood alerts and dengue clusters">
-            <h2>Active Alerts</h2>
+            <h2>Active Flood Alert</h2>
             <div class="flood-alert-list" data-alert-list><p class="map-empty">Loading…</p></div>
             <h2>Active Dengue Clusters</h2>
             <div class="flood-alert-list" data-dengue-list><p class="map-empty">Loading…</p></div>
@@ -2858,7 +4589,7 @@ async function renderFloodMap() {
         });
       });
 
-      updatedLabel.textContent = `Last updated ${formatDateTime(payload.fetchedAt)} · ${entries.length} active alert${entries.length === 1 ? "" : "s"}`;
+      updatedLabel.textContent = `Last updated ${formatDateTime(new Date())} · ${entries.length} active flood alert${entries.length === 1 ? "" : "s"}`;
     } catch (error) {
       updatedLabel.textContent = "Unable to load live flood alerts.";
       list.innerHTML = `<p class="map-empty error">${error.message}</p>`;
@@ -2888,10 +4619,10 @@ function blockagePopup({ type, label }) {
   `;
 }
 
-function evacuationRouteSummary({ baseline, rerouted, demo, hazards }) {
+function evacuationRouteSummary({ baseline, rerouted, rerouteStatus, demo, hazards }) {
   const baseSummary = baseline?.features?.[0]?.properties?.summary;
   const reroutedSummary = rerouted?.features?.[0]?.properties?.summary;
-  if (!baseSummary || !reroutedSummary) return "";
+  if (!baseSummary) return "";
 
   const fmt = (summary) =>
     `${(summary.distance / 1000).toFixed(1)} km · ${Math.round(summary.duration / 60)} min`;
@@ -2909,12 +4640,21 @@ function evacuationRouteSummary({ baseline, rerouted, demo, hazards }) {
         <p>${fmt(baseSummary)}</p>
       </div>
     </article>
-    <article class="flood-alert-card evac-summary-card">
-      <div>
-        <strong>Re-routed (avoiding selected hazards)</strong>
-        <p>${fmt(reroutedSummary)}</p>
-      </div>
-    </article>
+    ${reroutedSummary
+      ? `
+        <article class="flood-alert-card evac-summary-card">
+          <div>
+            <strong>Incident-aware route</strong>
+            <p>${fmt(reroutedSummary)}</p>
+            <p>Considers road incidents and other selected Avoid layers.</p>
+          </div>
+        </article>
+      `
+      : rerouteStatus === "unavailable"
+        ? `<p class="map-empty">The normal route is available, but a hazard-avoiding alternative could not be calculated right now.</p>`
+        : rerouteStatus === "same-route"
+          ? `<p class="map-empty">The normal route already avoids the selected hazards, so no different route is needed.</p>`
+          : `<p class="map-empty">No selected hazards require a different route.</p>`}
     ${demo ? `<p class="map-empty">Showing demo route data.</p>` : ""}
     ${fallbackLayers.length ? `<p class="map-empty">Using cached/demo data for: ${fallbackLayers.join(", ")}.</p>` : ""}
   `;
@@ -2939,7 +4679,7 @@ async function renderEvacuationRouting() {
     active: "evacuation",
     session,
     content: `
-      <section class="flood-map-shell ops-feature-shell">
+      <section class="flood-map-shell evacuation-routing-shell ops-feature-shell">
         <section class="dashboard-title">
           <div>
             <p class="eyebrow">OneMap basemap · openrouteservice · live flood, dengue & traffic hazards</p>
@@ -2974,8 +4714,8 @@ async function renderEvacuationRouting() {
               <button type="button" class="secondary-button compact" data-evac-clear>Clear</button>
             </div>
             <ul class="dengue-severity-legend evac-legend" aria-label="Evacuation route legend">
-              <li><i style="background:#1d4ed8"></i>Normal route</li>
-              <li><i style="background:#c53d32"></i>Re-routed</li>
+              <li><i class="evac-route-key is-normal"></i>Normal route</li>
+              <li><i class="evac-route-key is-incident-aware"></i>Route considering incidents</li>
               <li><i style="background:#0f766e"></i>Flood alert</li>
               <li><i style="background:#a92525"></i>Dengue cluster</li>
             </ul>
@@ -3444,6 +5184,44 @@ async function renderEvacuationRouting() {
 }
 
 async function renderRiskPrediction() {
+  const riskSession = await getOpsSession({ redirect: false });
+  app.innerHTML = opsShellMarkup({
+    active: "risk",
+    session: riskSession,
+    content: `
+      <section class="risk-shell ops-feature-shell risk-ai-shell">
+        <section class="dashboard-preview-panel dashboard-ai-panel" data-dashboard-ai-panel aria-labelledby="risk-ai-title">
+          <div class="dashboard-ai-heading">
+            <div>
+              <p class="eyebrow">On-demand assessment</p>
+              <h1 id="risk-ai-title">AI Prediction</h1>
+              <p>Choose an incident or zone, then run a four-hour risk analysis.</p>
+            </div>
+            <div class="dashboard-ai-controls">
+              <label>
+                Analyze target
+                <select data-dashboard-prediction-target disabled>
+                  <option value="">Loading targets...</option>
+                </select>
+              </label>
+              <button type="button" data-dashboard-analyze disabled>${icon("activity")} Analyze</button>
+            </div>
+          </div>
+          <div class="dashboard-ai-result" data-dashboard-ai-result>
+            <div class="dashboard-ai-idle-icon">${icon("activity")}</div>
+            <div>
+              <strong>Prediction waiting</strong>
+              <p>No AI assessment has been run. Select a target and press Analyze.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+    `
+  });
+  bindOpsShell();
+  await loadDashboardPredictionTargets({ autoAnalyze: true });
+  return;
+
   const session = await getOpsSession({ redirect: false });
   app.innerHTML = opsShellMarkup({
     active: "risk",
@@ -3829,174 +5607,6 @@ function generateFloodDengueInsights(floodEntries, dengueFeatures) {
   return insights;
 }
 
-async function renderAnalytics() {
-  const session = await getOpsSession({ redirect: false });
-  app.innerHTML = opsShellMarkup({
-    active: "analytics",
-    session,
-    content: `
-      <section class="analytics-shell ops-standalone-section">
-        <section class="analytics-header">
-          <p class="eyebrow">Analytics & Insights</p>
-          <h1>Strategic Analytics &amp; Insights</h1>
-        </section>
-
-        <section class="analytics-summary">
-          <div class="analytics-summary-grid">
-            <article class="metric-card">
-              <span>Active Flood Alerts</span>
-              <strong id="stat-incidents">—</strong>
-            </article>
-            <article class="metric-card">
-              <span>Active Dengue Clusters</span>
-              <strong id="stat-dengue-clusters">—</strong>
-            </article>
-            <article class="metric-card">
-              <span>Total Dengue Cases</span>
-              <strong id="stat-dengue-cases">—</strong>
-            </article>
-            <article class="metric-card">
-              <span>Shelter Utilisation</span>
-              <strong id="stat-shelter">—</strong>
-            </article>
-          </div>
-        </section>
-
-        <section class="analytics-charts">
-          <div class="analytics-charts-grid">
-            <div class="analytics-chart-card">
-              <p>Active Flood Alerts by Severity</p>
-              <canvas id="chart-flood" height="180"></canvas>
-            </div>
-            <div class="analytics-chart-card">
-              <p>Dengue Clusters by Case Size</p>
-              <canvas id="chart-dengue" height="180"></canvas>
-            </div>
-          </div>
-        </section>
-
-        <section class="analytics-shelters">
-          <div class="analytics-section-head">
-            <h2>Shelter Utilisation</h2>
-            <p class="muted" id="shelter-updated">Loading...</p>
-          </div>
-          <div class="analytics-shelter-grid" id="shelter-grid"></div>
-        </section>
-
-        <section class="analytics-insights">
-          <h2>AI Strategic Insights Panel</h2>
-          <div id="insights-grid" class="analytics-insights-grid"></div>
-        </section>
-      </section>
-    `
-  });
-  bindOpsShell();
-
-  const SHELTER_DATA = [
-    { label: "NUHS", value: 90 },
-    { label: "NHG", value: 82 },
-    { label: "SingHealth", value: 91 },
-    { label: "Schools", value: 90 },
-    { label: "Comm Centres", value: 76 },
-    { label: "Others", value: 90 }
-  ];
-
-  const shelterGrid = document.getElementById("shelter-grid");
-  if (shelterGrid) {
-    shelterGrid.innerHTML = SHELTER_DATA.map((s) => `
-      <article class="analytics-shelter-card">
-        <span>${s.label}</span>
-        <strong style="${s.value >= 90 ? "color:#a92525;font-weight:700" : ""}">${s.value}%</strong>
-      </article>
-    `).join("");
-    const updatedEl = document.getElementById("shelter-updated");
-    if (updatedEl) updatedEl.textContent = `Generated ${formatDateTime(new Date())}`;
-  }
-
-  try {
-    await loadScript("https://cdn.jsdelivr.net/npm/chart.js");
-
-    const [floodResp, dengueResp, sResp] = await Promise.all([
-      fetch("/api/flood-alerts"),
-      fetch("/api/dengue-clusters"),
-      fetch("/api/analytics/summary")
-    ]);
-
-    const floodPayload = await floodResp.json();
-    const denguePayload = await dengueResp.json();
-    const floodEntries = activeFloodReadings(floodPayload.records || []);
-    const dengueFeatures = denguePayload.geojson?.features || [];
-
-    document.getElementById("stat-incidents").textContent = floodEntries.length || "0";
-    document.getElementById("stat-dengue-clusters").textContent = dengueFeatures.length || "0";
-    document.getElementById("stat-dengue-cases").textContent = dengueFeatures.reduce((sum, f) => sum + dengueClusterInfo(f).caseSize, 0) || "0";
-
-    let shelterUtilisation = "—";
-    if (sResp.ok) {
-      const stats = await sResp.json();
-      shelterUtilisation = (stats.shelterUtilisation ?? "—") + (stats.shelterUtilisation != null ? "%" : "");
-    }
-    document.getElementById("stat-shelter").textContent = shelterUtilisation;
-
-    const severityCounts = { Extreme: 0, Severe: 0, Moderate: 0, Minor: 0 };
-    floodEntries.forEach((e) => { if (severityCounts[e.reading.severity] !== undefined) severityCounts[e.reading.severity]++; });
-    new Chart(document.getElementById("chart-flood").getContext("2d"), {
-      type: "bar",
-      data: {
-        labels: Object.keys(severityCounts),
-        datasets: [{
-          label: "Flood Alerts",
-          data: Object.values(severityCounts),
-          backgroundColor: ["#a92525", "#c53d32", "#c47a1b", "#0f766e"]
-        }]
-      },
-      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-    });
-
-    const dengueBucketCounts = DENGUE_BUCKETS.map((b) => 0);
-    dengueFeatures.forEach((f) => {
-      const { caseSize } = dengueClusterInfo(f);
-      const idx = DENGUE_BUCKETS.findIndex((b) => caseSize <= b.max);
-      if (idx >= 0) dengueBucketCounts[idx]++;
-    });
-    new Chart(document.getElementById("chart-dengue").getContext("2d"), {
-      type: "bar",
-      data: {
-        labels: DENGUE_BUCKETS.map((b) => b.label),
-        datasets: [{
-          label: "Dengue Clusters",
-          data: dengueBucketCounts,
-          backgroundColor: DENGUE_BUCKETS.map((b) => b.color)
-        }]
-      },
-      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-    });
-
-    const insights = generateFloodDengueInsights(floodEntries, dengueFeatures);
-    const insightsGrid = document.getElementById("insights-grid");
-    if (insightsGrid) {
-      insightsGrid.innerHTML = insights.map((ins) => {
-        const lvl = ins.riskLevel;
-        const riskClass = lvl === "CRITICAL" ? "risk-critical" : lvl === "HIGH" ? "risk-high" : "risk-medium";
-        return `
-          <article class="analytics-insight-card ${riskClass}">
-            <div class="analytics-insight-header">
-              <h3>${ins.title}</h3>
-              <span class="analytics-risk-badge analytics-risk-badge--${lvl.toLowerCase()}">${lvl}</span>
-            </div>
-            <h4 class="eyebrow" style="margin-top:12px">AI Recommendations</h4>
-            <ul>${ins.recommendations.map((r) => `<li>${r}</li>`).join("")}</ul>
-          </article>
-        `;
-      }).join("");
-    }
-
-  } catch (error) {
-    const el = document.querySelector(".analytics-shell");
-    if (el) el.insertAdjacentHTML("beforeend", `<p class="muted">Unable to load analytics data: ${error.message}</p>`);
-  }
-}
-
 function renderRoute() {
   if (opsMenuKeydownHandler) {
     document.removeEventListener("keydown", opsMenuKeydownHandler);
@@ -4021,6 +5631,14 @@ function renderRoute() {
   if (opsHeaderClockTimer) {
     window.clearInterval(opsHeaderClockTimer);
     opsHeaderClockTimer = null;
+  }
+  if (dashboardPreviewTimer) {
+    window.clearInterval(dashboardPreviewTimer);
+    dashboardPreviewTimer = null;
+  }
+  if (volunteerDispatchTimer) {
+    window.clearInterval(volunteerDispatchTimer);
+    volunteerDispatchTimer = null;
   }
   const renderer = routes[window.location.hash] || renderLanding;
   renderer();

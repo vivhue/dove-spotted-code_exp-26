@@ -19,9 +19,19 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true
     },
+    securityQuestion: {
+      type: String,
+      enum: ["", "first_school", "childhood_nickname", "memorable_place", "first_job"],
+      default: ""
+    },
+    securityAnswerHash: {
+      type: String,
+      select: false,
+      default: ""
+    },
     role: {
       type: String,
-      enum: ["professional", "public"],
+      enum: ["professional", "volunteer", "public"],
       required: true
     },
     status: {

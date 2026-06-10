@@ -1,5 +1,6 @@
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const mongoose = require("mongoose");
 const connectDB = require("../config/db");
 const User = require("../models/User");
@@ -26,6 +27,9 @@ function loadEnvFile(filePath) {
 
 async function upsertUser(user) {
   const passwordHash = await hashPassword(user.password);
+  const normalizedAnswer = String(user.securityAnswer).trim().toLowerCase().replace(/\s+/g, " ");
+  const securityAnswerDigest = crypto.createHash("sha256").update(normalizedAnswer, "utf8").digest("hex");
+  const securityAnswerHash = await hashPassword(securityAnswerDigest);
   return User.findOneAndUpdate(
     { email: user.email.toLowerCase() },
     {
@@ -33,7 +37,10 @@ async function upsertUser(user) {
         name: user.name,
         email: user.email.toLowerCase(),
         passwordHash,
+        securityQuestion: user.securityQuestion,
+        securityAnswerHash,
         role: user.role,
+        isVolunteer: user.role === "volunteer",
         status: user.status,
         agency: user.agency || "",
         roleTitle: user.roleTitle || "",
@@ -53,10 +60,12 @@ async function seed() {
   const professionalEmail = process.env.SEED_PRO_EMAIL || "agency@example.com";
   const professionalPassword = process.env.SEED_PRO_PASSWORD || "password123";
   const professionalName = process.env.SEED_PRO_NAME || "Agency Operations User";
-  const publicEmail = process.env.SEED_PUBLIC_EMAIL || "public@example.com";
-  const publicPassword = process.env.SEED_PUBLIC_PASSWORD || "secret123";
-  const publicName = process.env.SEED_PUBLIC_NAME || "Public Demo User";
+  const volunteerEmail = process.env.SEED_VOLUNTEER_EMAIL || process.env.SEED_PUBLIC_EMAIL || "volunteer@example.com";
+  const volunteerPassword = process.env.SEED_VOLUNTEER_PASSWORD || process.env.SEED_PUBLIC_PASSWORD || "secret123";
+  const volunteerName = process.env.SEED_VOLUNTEER_NAME || process.env.SEED_PUBLIC_NAME || "Volunteer Demo User";
   const teamPassword = process.env.SEED_TEAM_PASSWORD || "QuickAidDemo2026!";
+  const securityQuestion = process.env.SEED_SECURITY_QUESTION || "memorable_place";
+  const securityAnswer = process.env.SEED_SECURITY_ANSWER || "Singapore";
 
   const professionalUsers = [
     {
@@ -99,16 +108,20 @@ async function seed() {
   for (const professional of professionalUsers) {
     await upsertUser({
       ...professional,
+      securityQuestion,
+      securityAnswer,
       role: "professional",
       status: "approved"
     });
   }
 
   await upsertUser({
-    name: publicName,
-    email: publicEmail,
-    password: publicPassword,
-    role: "public",
+    name: volunteerName,
+    email: volunteerEmail,
+    password: volunteerPassword,
+    securityQuestion,
+    securityAnswer,
+    role: "volunteer",
     status: "approved"
   });
 
@@ -116,8 +129,8 @@ async function seed() {
   professionalUsers.forEach((professional) => {
     console.log(`Professional (${professional.agency}): ${professional.email}`);
   });
-  console.log(`Public: ${publicEmail}`);
-  console.log("Passwords were loaded from .env and stored only as bcrypt hashes.");
+  console.log(`Volunteer: ${volunteerEmail}`);
+  console.log("Passwords and security answers were loaded from .env and stored only as bcrypt hashes.");
 }
 
 seed()

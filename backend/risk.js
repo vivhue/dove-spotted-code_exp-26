@@ -116,7 +116,7 @@ async function handleHeatmap(req, res, cached) {
   }
 }
 
-async function handlePredict(req, res) {
+async function handlePredict(req, res, cached) {
   try {
     const body = await new Promise((resolve, reject) => {
       let b = "";

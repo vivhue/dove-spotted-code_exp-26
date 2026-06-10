@@ -31,7 +31,7 @@ Implemented flow:
 - Landing page
 - Role selection page
 - Professional login page
-- Public login page
+- Volunteer login page
 - Live dashboard after successful sign-in
 
 Project structure:
@@ -50,7 +50,7 @@ frontend/
 Demo login rules:
 
 - Professional login needs an account created with a supported official agency email and its password.
-- Public login needs a saved email and password.
+- Volunteer login needs an account created through volunteer sign-up and its password.
 
 Both login types use server-held sessions in an HttpOnly, SameSite cookie.
 After 3 failed password attempts, the account is temporarily locked for 1 minute.
@@ -73,7 +73,7 @@ npm run seed
 ```
 
 This creates or updates the main professional account, four professional team
-accounts, and one public account. Running it again updates the same email
+accounts, and one volunteer account. Running it again updates the same email
 addresses instead of creating duplicates.
 
 Configure the passwords in `.env`:
@@ -85,6 +85,8 @@ SEED_TEAM_PASSWORD=your_shared_demo_password
 SEED_PRO_NAME=Aishani
 SEED_PRO_AGENCY=SCDF
 SEED_PRO_ROLE_TITLE=Emergency Operations Officer
+SEED_SECURITY_QUESTION=memorable_place
+SEED_SECURITY_ANSWER=Singapore
 ```
 
 Then run:
@@ -95,7 +97,7 @@ npm run seed
 
 Both passwords are stored as bcrypt hashes in MongoDB.
 
-Public email login requires an existing account. New volunteers register at
+Volunteer accounts use the explicit `volunteer` role. New volunteers register at
 `http://127.0.0.1:3000/#/signup/volunteer`.
 
 Professional registration:
@@ -138,7 +140,7 @@ nodemon backend/server.js
 ```
 
 `npm run db:check` confirms the database connection and prints the number of
-professional and public users without displaying passwords.
+professional, volunteer, and legacy public users without displaying passwords.
 
 For a short classroom demo, Atlas can temporarily allow `0.0.0.0/0` under
 Network Access so connections work from any IP. This is less secure: use
@@ -153,7 +155,10 @@ Password security:
 - Sessions expire after eight hours and are invalidated when the user signs out.
 - Login attempts are limited per account and client address.
 - Three incorrect passwords temporarily lock the account for 1 minute.
-- Users can request a password reset from the Forgot Password page.
+- Sign-up requires a security question and answer for local password recovery.
+- Security answers are normalized, SHA-256 digested, and stored only as salted bcrypt hashes.
+- A correct answer allows the user to replace their password from the Forgot Password page.
+- A new password cannot match the current password, and existing sessions are invalidated after reset.
 
 Environment variables for Risk & Analytics (optional for demo):
 
