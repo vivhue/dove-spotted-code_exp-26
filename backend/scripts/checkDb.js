@@ -30,15 +30,39 @@ async function checkDatabase() {
     return;
   }
 
-  const [approvedProfessionalCount, pendingProfessionalCount, publicCount] = await Promise.all([
+  const [
+    approvedProfessionalCount,
+    pendingProfessionalCount,
+    publicCount,
+    volunteerCount,
+    missingPasswordHashUsers
+  ] = await Promise.all([
     User.countDocuments({ role: "professional", status: "approved" }),
     User.countDocuments({ role: "professional", status: "pending" }),
-    User.countDocuments({ role: "public" })
+    User.countDocuments({ role: "public" }),
+    User.countDocuments({ role: "public", isVolunteer: true }),
+    User.find({
+      $or: [
+        { passwordHash: { $exists: false } },
+        { passwordHash: "" },
+        { passwordHash: null }
+      ]
+    }).select("email role isVolunteer").lean()
   ]);
 
   console.log(`Approved professionals found: ${approvedProfessionalCount}`);
   console.log(`Pending professionals found: ${pendingProfessionalCount}`);
   console.log(`Public accounts found: ${publicCount}`);
+  console.log(`Volunteer accounts found: ${volunteerCount}`);
+  if (missingPasswordHashUsers.length) {
+    console.log("Users missing password hashes:");
+    for (const user of missingPasswordHashUsers) {
+      const type = user.role === "professional" ? "professional" : user.isVolunteer ? "volunteer" : "public";
+      console.log(`- ${user.email} (${type})`);
+    }
+  } else {
+    console.log("All user accounts have password hashes.");
+  }
   console.log("MongoDB connection check passed.");
 }
 
