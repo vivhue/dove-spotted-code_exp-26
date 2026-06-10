@@ -110,6 +110,59 @@ function loadEnvFile(filePath) {
   }
 }
 
+function normalizeZone(zone) {
+  const trimmed = String(zone || "").trim();
+  return Object.keys(ZONE_COORDINATES).find((candidate) => candidate.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+}
+
+function normalizeVolunteerSkills(skills) {
+  const raw = Array.isArray(skills) ? skills : String(skills || "").split(",");
+  return raw
+    .map((skill) => String(skill).trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function volunteerBaseStatus(availability) {
+  return availability === "Off Duty" ? "Off Duty" : "Available";
+}
+
+function deploymentTaskForScenario(scenario) {
+  if (!scenario) return "General volunteer support";
+  if (scenario.type === "Flood") return "Support shelter intake, distribution, and flood relief";
+  if (scenario.type === "Fire") return "Assist evacuation support and first-aid logistics";
+  if (scenario.type === "Health") return "Support triage logistics and community outreach";
+  return "General volunteer support";
+}
+
+function serializeVolunteer(volunteer) {
+  return {
+    ...volunteer,
+    skills: [...volunteer.skills]
+  };
+}
+
+function volunteerActiveAssignment(volunteer) {
+  return Boolean(volunteer.assignedIncidentId) && ["Assigned", "En Route", "On Site"].includes(volunteer.status);
+}
+
+function validateVolunteerProfile(body, { requireIdentity = true } = {}) {
+  const errors = {};
+  const name = String(body.name || "").trim();
+  const zone = normalizeZone(body.zone);
+  const phone = String(body.phone || "").replace(/\s+/g, "");
+  const locationLabel = String(body.currentLocationLabel || "").trim();
+  const availability = String(body.availability || "").trim();
+
+  if (requireIdentity && (name.length < 2 || name.length > 80)) errors.name = "Enter the volunteer's full name.";
+  if (requireIdentity && !validEmail(body.email)) errors.email = "Enter a valid volunteer email.";
+  if (requireIdentity && !/^[689]\d{7}$/.test(phone)) errors.phone = "Enter a valid 8-digit Singapore phone number.";
+  if (!zone || !ZONE_COORDINATES[zone]) errors.zone = "Choose a supported zone.";
+  if (locationLabel.length < 2 || locationLabel.length > 120) errors.currentLocationLabel = "Enter the volunteer's current location.";
+  if (!VOLUNTEER_AVAILABILITY_OPTIONS.includes(availability)) errors.availability = "Availability must be Available or Off Duty.";
+  return errors;
+}
+
 const liveStatus = {
   activeIncidents: 18,
   availableResponders: 74,
@@ -140,6 +193,181 @@ const liveStatus = {
     }
   ]
 };
+
+const emergencySpaces = [
+  {
+    id: 1,
+    name: "Singapore Expo Hall 3",
+    type: "Emergency Medical Site",
+    region: "Changi",
+    capacity: 1200,
+    currentOccupancy: 0,
+    setupTimeHours: 2,
+    wheelchairAccess: true,
+    status: "INACTIVE"
+  },
+  {
+    id: 2,
+    name: "Jurong East Sports Hall",
+    type: "Temporary Shelter",
+    region: "Jurong East",
+    capacity: 500,
+    currentOccupancy: 0,
+    setupTimeHours: 1,
+    wheelchairAccess: true,
+    status: "INACTIVE"
+  },
+  {
+    id: 3,
+    name: "Our Tampines Hub",
+    type: "Relief Centre",
+    region: "Tampines",
+    capacity: 800,
+    currentOccupancy: 0,
+    setupTimeHours: 1.5,
+    wheelchairAccess: true,
+    status: "INACTIVE"
+  }
+];
+
+const simulationScenarios = [
+  {
+    id: "flash-flood-jurong",
+    name: "Flash Flood — Jurong West",
+    type: "Flood",
+    zone: "Jurong West",
+    severity: "Critical",
+    affectedPeople: 650,
+    estimatedCasualties: 120,
+    resourceDemand: {
+      shelterSpaces: 400,
+      hospitalBeds: 80,
+      volunteersNeeded: 20,
+      medicalKits: 60,
+      foodPacks: 500
+    }
+  },
+  {
+    id: "fire-bedok",
+    name: "Residential Fire — Bedok",
+    type: "Fire",
+    zone: "Bedok",
+    severity: "High",
+    affectedPeople: 180,
+    estimatedCasualties: 35,
+    resourceDemand: {
+      shelterSpaces: 120,
+      hospitalBeds: 25,
+      volunteersNeeded: 8,
+      medicalKits: 30,
+      foodPacks: 150
+    }
+  },
+  {
+    id: "dengue-tampines",
+    name: "Dengue Cluster Surge — Tampines",
+    type: "Health",
+    zone: "Tampines",
+    severity: "Medium",
+    affectedPeople: 90,
+    estimatedCasualties: 15,
+    resourceDemand: {
+      shelterSpaces: 0,
+      hospitalBeds: 20,
+      volunteersNeeded: 6,
+      medicalKits: 25,
+      foodPacks: 0
+    }
+  }
+];
+
+const VOLUNTEER_STATUSES = ["Available", "Assigned", "En Route", "On Site", "Completed", "Off Duty"];
+const VOLUNTEER_AVAILABILITY_OPTIONS = ["Available", "Off Duty"];
+const ZONE_COORDINATES = {
+  "Jurong West": { lat: 1.3507, lng: 103.7004 },
+  "Jurong East": { lat: 1.3331, lng: 103.7422 },
+  Bedok: { lat: 1.3236, lng: 103.9273 },
+  Tampines: { lat: 1.3496, lng: 103.9568 },
+  Changi: { lat: 1.3644, lng: 103.9915 },
+  Clementi: { lat: 1.3151, lng: 103.7652 },
+  "Bukit Timah": { lat: 1.3294, lng: 103.8021 }
+};
+
+let volunteerProfiles = [
+  {
+    id: 1,
+    name: "Aisha Rahman",
+    email: "aisha.volunteer@quickaid.local",
+    phone: "81234567",
+    skills: ["First Aid", "Driving"],
+    zone: "Jurong West",
+    currentLocationLabel: "Jurong Spring Community Club",
+    availability: "Available",
+    status: "Available",
+    assignedIncidentId: "",
+    assignedIncidentName: "",
+    assignedTask: "",
+    notificationMessage: "",
+    deploymentResponsePending: false,
+    lat: ZONE_COORDINATES["Jurong West"].lat,
+    lng: ZONE_COORDINATES["Jurong West"].lng
+  },
+  {
+    id: 2,
+    name: "Daniel Lim",
+    email: "daniel.volunteer@quickaid.local",
+    phone: "82345678",
+    skills: ["Logistics", "Crowd Control"],
+    zone: "Bedok",
+    currentLocationLabel: "Bedok North Ave 3",
+    availability: "Available",
+    status: "Available",
+    assignedIncidentId: "",
+    assignedIncidentName: "",
+    assignedTask: "",
+    notificationMessage: "",
+    deploymentResponsePending: false,
+    lat: ZONE_COORDINATES.Bedok.lat,
+    lng: ZONE_COORDINATES.Bedok.lng
+  },
+  {
+    id: 3,
+    name: "Mei Tan",
+    email: "mei.volunteer@quickaid.local",
+    phone: "83456789",
+    skills: ["Translation", "Community Outreach"],
+    zone: "Tampines",
+    currentLocationLabel: "Our Tampines Hub",
+    availability: "Available",
+    status: "Available",
+    assignedIncidentId: "",
+    assignedIncidentName: "",
+    assignedTask: "",
+    notificationMessage: "",
+    deploymentResponsePending: false,
+    lat: ZONE_COORDINATES.Tampines.lat,
+    lng: ZONE_COORDINATES.Tampines.lng
+  },
+  {
+    id: 4,
+    name: "Ryan Goh",
+    email: "ryan.volunteer@quickaid.local",
+    phone: "84567890",
+    skills: ["First Aid", "Shelter Ops"],
+    zone: "Jurong East",
+    currentLocationLabel: "Jurong East Sports Hall",
+    availability: "Off Duty",
+    status: "Off Duty",
+    assignedIncidentId: "",
+    assignedIncidentName: "",
+    assignedTask: "",
+    notificationMessage: "",
+    deploymentResponsePending: false,
+    lat: ZONE_COORDINATES["Jurong East"].lat,
+    lng: ZONE_COORDINATES["Jurong East"].lng
+  }
+];
+let nextVolunteerId = volunteerProfiles.length + 1;
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
@@ -502,6 +730,242 @@ async function pollTelegramUpdates() {
 async function handleApi(req, res) {
   if (req.method === "GET" && req.url === "/api/status") {
     sendJson(res, 200, { ...liveStatus, lastUpdated: new Date().toISOString() });
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/api/emergency-spaces") {
+    sendJson(res, 200, emergencySpaces);
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/api/simulation/scenarios") {
+    sendJson(res, 200, simulationScenarios);
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/api/volunteers") {
+    sendJson(res, 200, volunteerProfiles.map(serializeVolunteer));
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/volunteers") {
+    try {
+      const body = await parseBody(req);
+      const errors = validateVolunteerProfile(body);
+      if (Object.keys(errors).length) {
+        sendJson(res, 400, { error: "Unable to create volunteer profile.", fields: errors });
+        return;
+      }
+
+      const email = normalizeEmail(body.email);
+      if (volunteerProfiles.some((volunteer) => volunteer.email === email)) {
+        sendJson(res, 409, { error: "A volunteer profile already exists for this email." });
+        return;
+      }
+
+      const zone = normalizeZone(body.zone);
+      const availability = String(body.availability || "Available").trim();
+      const coordinates = ZONE_COORDINATES[zone];
+      const volunteer = {
+        id: nextVolunteerId++,
+        name: String(body.name).trim(),
+        email,
+        phone: String(body.phone).replace(/\s+/g, ""),
+        skills: normalizeVolunteerSkills(body.skills),
+        zone,
+        currentLocationLabel: String(body.currentLocationLabel).trim(),
+        availability,
+        status: volunteerBaseStatus(availability),
+        assignedIncidentId: "",
+        assignedIncidentName: "",
+        assignedTask: "",
+        notificationMessage: "Simulated notification: Volunteer profile created successfully.",
+        deploymentResponsePending: false,
+        lat: coordinates.lat,
+        lng: coordinates.lng
+      };
+      volunteerProfiles.push(volunteer);
+      sendJson(res, 201, serializeVolunteer(volunteer));
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
+    return;
+  }
+
+  if (req.method === "PATCH" && /^\/api\/volunteers\/\d+$/.test(req.url)) {
+    try {
+      const volunteerId = Number(req.url.split("/")[3]);
+      const volunteer = volunteerProfiles.find((item) => item.id === volunteerId);
+      if (!volunteer) {
+        sendJson(res, 404, { error: "Volunteer profile not found." });
+        return;
+      }
+
+      const body = await parseBody(req);
+      const errors = validateVolunteerProfile({ ...volunteer, ...body }, { requireIdentity: false });
+      if (Object.keys(errors).length) {
+        sendJson(res, 400, { error: "Unable to update volunteer profile.", fields: errors });
+        return;
+      }
+
+      const nextAvailability = String(body.availability || volunteer.availability).trim();
+      if (nextAvailability === "Off Duty" && volunteerActiveAssignment(volunteer)) {
+        sendJson(res, 409, { error: "Assigned volunteers cannot switch to Off Duty until the task is closed." });
+        return;
+      }
+
+      const nextZone = normalizeZone(body.zone || volunteer.zone);
+      const coordinates = ZONE_COORDINATES[nextZone];
+      volunteer.name = String(body.name || volunteer.name).trim();
+      volunteer.phone = String(body.phone || volunteer.phone).replace(/\s+/g, "");
+      volunteer.skills = normalizeVolunteerSkills(body.skills ?? volunteer.skills);
+      volunteer.zone = nextZone;
+      volunteer.currentLocationLabel = String(body.currentLocationLabel || volunteer.currentLocationLabel).trim();
+      volunteer.availability = nextAvailability;
+      volunteer.lat = coordinates.lat;
+      volunteer.lng = coordinates.lng;
+      if (!volunteerActiveAssignment(volunteer) || volunteer.status === "Completed") {
+        volunteer.status = volunteerBaseStatus(nextAvailability);
+        if (volunteer.status === "Off Duty") {
+          volunteer.assignedIncidentId = "";
+          volunteer.assignedIncidentName = "";
+          volunteer.assignedTask = "";
+          volunteer.deploymentResponsePending = false;
+        }
+      }
+      volunteer.notificationMessage = "Simulated notification: Volunteer profile updated.";
+      sendJson(res, 200, serializeVolunteer(volunteer));
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
+    return;
+  }
+
+  if (req.method === "DELETE" && /^\/api\/volunteers\/\d+$/.test(req.url)) {
+    const volunteerId = Number(req.url.split("/")[3]);
+    const before = volunteerProfiles.length;
+    volunteerProfiles = volunteerProfiles.filter((item) => item.id !== volunteerId);
+    if (volunteerProfiles.length === before) {
+      sendJson(res, 404, { error: "Volunteer profile not found." });
+      return;
+    }
+    sendJson(res, 200, { message: "Volunteer profile deleted." });
+    return;
+  }
+
+  if (req.method === "POST" && /^\/api\/volunteers\/\d+\/deploy$/.test(req.url)) {
+    try {
+      const volunteerId = Number(req.url.split("/")[3]);
+      const volunteer = volunteerProfiles.find((item) => item.id === volunteerId);
+      if (!volunteer) {
+        sendJson(res, 404, { error: "Volunteer profile not found." });
+        return;
+      }
+
+      const body = await parseBody(req);
+      const scenario = simulationScenarios.find((item) => item.id === body.incidentId);
+      if (!scenario) {
+        sendJson(res, 404, { error: "Incident scenario not found." });
+        return;
+      }
+      if (volunteer.availability !== "Available" || volunteer.status !== "Available") {
+        sendJson(res, 409, { error: "Volunteer must be Available before deployment." });
+        return;
+      }
+
+      volunteer.assignedIncidentId = scenario.id;
+      volunteer.assignedIncidentName = scenario.name;
+      volunteer.assignedTask = deploymentTaskForScenario(scenario);
+      volunteer.status = "Assigned";
+      volunteer.deploymentResponsePending = true;
+      volunteer.notificationMessage = `Simulated notification: ${volunteer.name}, you have been selected for ${scenario.name}. Task: ${volunteer.assignedTask}`;
+      sendJson(res, 200, serializeVolunteer(volunteer));
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && /^\/api\/volunteers\/\d+\/respond$/.test(req.url)) {
+    try {
+      const volunteerId = Number(req.url.split("/")[3]);
+      const volunteer = volunteerProfiles.find((item) => item.id === volunteerId);
+      if (!volunteer) {
+        sendJson(res, 404, { error: "Volunteer profile not found." });
+        return;
+      }
+
+      const body = await parseBody(req);
+      if (!["accept", "reject"].includes(body.response)) {
+        sendJson(res, 400, { error: "Response must be accept or reject." });
+        return;
+      }
+      if (!volunteer.assignedIncidentId || !volunteer.deploymentResponsePending) {
+        sendJson(res, 409, { error: "There is no pending deployment to respond to." });
+        return;
+      }
+
+      if (body.response === "accept") {
+        volunteer.deploymentResponsePending = false;
+        volunteer.notificationMessage = `Simulated notification: Deployment accepted for ${volunteer.assignedIncidentName}.`;
+      } else {
+        volunteer.assignedIncidentId = "";
+        volunteer.assignedIncidentName = "";
+        volunteer.assignedTask = "";
+        volunteer.deploymentResponsePending = false;
+        volunteer.status = volunteerBaseStatus(volunteer.availability);
+        volunteer.notificationMessage = "Simulated notification: Deployment rejected. Coordinator has been notified.";
+      }
+      sendJson(res, 200, serializeVolunteer(volunteer));
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && /^\/api\/volunteers\/\d+\/status$/.test(req.url)) {
+    try {
+      const volunteerId = Number(req.url.split("/")[3]);
+      const volunteer = volunteerProfiles.find((item) => item.id === volunteerId);
+      if (!volunteer) {
+        sendJson(res, 404, { error: "Volunteer profile not found." });
+        return;
+      }
+
+      const body = await parseBody(req);
+      const nextStatus = String(body.status || "").trim();
+      if (!VOLUNTEER_STATUSES.includes(nextStatus)) {
+        sendJson(res, 400, { error: "Invalid volunteer status." });
+        return;
+      }
+      if (["Assigned", "En Route", "On Site"].includes(nextStatus) && !volunteer.assignedIncidentId) {
+        sendJson(res, 409, { error: "Volunteer must be deployed before using this status." });
+        return;
+      }
+
+      volunteer.status = nextStatus;
+      volunteer.deploymentResponsePending = false;
+      if (nextStatus === "Available") {
+        volunteer.availability = "Available";
+        volunteer.assignedIncidentId = "";
+        volunteer.assignedIncidentName = "";
+        volunteer.assignedTask = "";
+      }
+      if (nextStatus === "Off Duty") {
+        volunteer.availability = "Off Duty";
+        volunteer.assignedIncidentId = "";
+        volunteer.assignedIncidentName = "";
+        volunteer.assignedTask = "";
+      }
+      if (nextStatus === "Completed") {
+        volunteer.notificationMessage = `Simulated notification: ${volunteer.name} marked the deployment as completed.`;
+      } else {
+        volunteer.notificationMessage = `Simulated notification: Volunteer status changed to ${nextStatus}.`;
+      }
+      sendJson(res, 200, serializeVolunteer(volunteer));
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid request payload." });
+    }
     return;
   }
 
