@@ -1,0 +1,69 @@
+{
+  "demoStart": { "lat": 1.3331, "lng": 103.7422, "label": "Jurong East" },
+  "demoEnd": { "lat": 1.2839, "lng": 103.8519, "label": "Marina Bay" },
+  "blockagePoints": [
+    {
+      "lat": 1.3150,
+      "lng": 103.8100,
+      "type": "flood",
+      "label": "Flash flood near Alexandra Road"
+    },
+    {
+      "lat": 1.3250,
+      "lng": 103.7950,
+      "type": "incident",
+      "label": "Vehicle breakdown on AYE (towards City)"
+    },
+    {
+      "lat": 1.2950,
+      "lng": 103.8400,
+      "type": "flood",
+      "label": "Ponding reported at Marina Boulevard"
+    }
+  ],
+  "baselineRoute": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "summary": { "distance": 16800, "duration": 1080 },
+          "demo": true
+        },
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [103.7422, 1.3331],
+            [103.7800, 1.3270],
+            [103.8100, 1.3150],
+            [103.8300, 1.3000],
+            [103.8519, 1.2839]
+          ]
+        }
+      }
+    ]
+  },
+  "reroutedRoute": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "summary": { "distance": 18950, "duration": 1260 },
+          "demo": true
+        },
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [103.7422, 1.3331],
+            [103.7800, 1.3270],
+            [103.8050, 1.3250],
+            [103.8250, 1.3100],
+            [103.8400, 1.2950],
+            [103.8519, 1.2839]
+          ]
+        }
+      }
+    ]
+  }
+}
