@@ -3431,3 +3431,126 @@ p {
 .analytics-title-row h1 {
   margin-bottom: 0;
 }
+
+/* ── Simulation response panel ── */
+.simulation-response-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-top: 20px;
+}
+.simulation-response-panel h3 {
+  margin: 0 0 16px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.sim-response-section {
+  margin-bottom: 20px;
+}
+.sim-response-section h4 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.sim-hospital-list,
+.sim-overflow-list,
+.sim-prediction-actions {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.sim-hospital-list li {
+  margin-bottom: 4px;
+}
+.sim-distance {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0 4px;
+}
+.sim-warning-badge {
+  display: inline-block;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+.sim-warning {
+  color: var(--red);
+  font-size: 0.875rem;
+  margin: 6px 0 0;
+  font-weight: 500;
+}
+.sim-ok {
+  color: var(--teal);
+  font-size: 0.875rem;
+  margin: 6px 0 0;
+  font-weight: 500;
+}
+.sim-prediction-text {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0 0 10px;
+  color: var(--ink);
+}
+
+/* ── Emergency spaces: inactive dim, hospital cards, nearest hospitals ── */
+.space-inactive-dim {
+  opacity: 0.5;
+}
+.hospital-card {
+  border-left: 3px solid var(--teal);
+}
+.nearest-hospitals-section {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.nearest-hospitals-section h3 {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+.nearest-hospitals-status {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+.nearest-hospitals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+/* ── Volunteer self-status section ── */
+.dispatch-self-status {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.dispatch-self-status h4 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.dispatch-self-status p {
+  font-size: 0.875rem;
+  margin: 0 0 8px;
+}
+
+/* ── Public status buttons: stack nicely ── */
+.public-status-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
