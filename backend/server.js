@@ -735,7 +735,6 @@ function validateProfessionalSignup(body) {
 
 function validatePublicLogin(body) {
   const errors = {};
-  if (body.provider === "google") return errors;
   if (!validEmail(body.email)) errors.email = "Enter a valid email.";
   if (typeof body.password !== "string" || body.password.length < 6) {
     errors.password = "Password must be at least 6 characters.";
@@ -1475,31 +1474,22 @@ async function handleApi(req, res) {
         return;
       }
 
-      let user;
-      if (body.provider === "google") {
-        user = {
-          _id: "google-demo",
-          email: "google-user@quickaid.local",
-          role: "public"
-        };
-      } else {
-        if (!mongoConnected) {
-          sendJson(res, 503, { error: "MongoDB is not connected. Personal sign-in is unavailable." });
-          return;
-        }
-        const email = normalizeEmail(body.email);
-        const authentication = await authenticateUser(req, "public", email, body.password);
-        if (!authentication.user) {
-          sendJson(res, authentication.statusCode, { error: authentication.error });
-          return;
-        }
-        user = authentication.user;
-        user.lastLoginAt = new Date();
-        await user.save();
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: "MongoDB is not connected. Personal sign-in is unavailable." });
+        return;
       }
+      const email = normalizeEmail(body.email);
+      const authentication = await authenticateUser(req, "public", email, body.password);
+      if (!authentication.user) {
+        sendJson(res, authentication.statusCode, { error: authentication.error });
+        return;
+      }
+      const user = authentication.user;
+      user.lastLoginAt = new Date();
+      await user.save();
 
       sendJson(res, 200, {
-        message: body.provider === "google" ? "Google demo sign-in approved." : "Public access approved.",
+        message: "Public access approved.",
         session: createUserSession(res, req, user),
         redirectTo: "/#/dashboard"
       });

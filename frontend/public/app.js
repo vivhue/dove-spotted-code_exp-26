@@ -105,9 +105,7 @@ const SINGAPORE_HOSPITALS = [
 
 function shieldIcon() {
   return `
-    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3l8 3v6c0 5-3.3 8.2-8 9-4.7-.8-8-4-8-9V6l8-3z" fill="none" stroke="currentColor" stroke-width="1.8" />
-    </svg>
+    <img class="brand-mark" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
   `;
 }
 
@@ -122,9 +120,15 @@ function icon(name) {
     alert: '<path d="M10.3 3.4 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.4a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01" />',
     activity: '<path d="M3 12h4l2.2-7 4.1 14 2.2-7H21" />',
     barChart: '<path d="M3 3v18h18M7 16v-5M12 16v-9M17 16v-3" />',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" />',
     close: '<path d="M18 6 6 18M6 6l12 12" />',
+    droplet: '<path d="M12 3s6 6.3 6 11a6 6 0 0 1-12 0c0-4.7 6-11 6-11z" />',
+    logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />',
     mapPin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0z" /><circle cx="12" cy="10" r="2.5" />',
-    google: '<path d="M21.8 12.2c0-.7-.1-1.3-.2-1.9H12v3.6h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.2c1.9-1.8 3.1-4.4 3.1-7.4z" /><path d="M12 22c2.7 0 5-0.9 6.7-2.4L15.5 17a6 6 0 0 1-8.9-3.1H3.3v2.7A10 10 0 0 0 12 22z" /><path d="M6.6 13.9a6 6 0 0 1 0-3.8V7.4H3.3a10 10 0 0 0 0 9.2l3.3-2.7z" /><path d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-8.7 5.4l3.3 2.7A6 6 0 0 1 12 6z" />'
+    medical: '<path d="M8 6V4h8v2M6 8h12v12H6zM12 11v6M9 14h6" />',
+    settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.3 7A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1z" />',
+    shield: '<path d="M12 3l8 3v6c0 5-3.3 8.2-8 9-4.7-.8-8-4-8-9V6l8-3z" />',
+    truck: '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7zM7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4M18 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4" />',
   };
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
 }
@@ -141,12 +145,15 @@ function updateOpsHeaderTime() {
   document.querySelectorAll("[data-last-updated]").forEach((element) => {
     element.textContent = `Last Updated : ${formatOpsUpdatedTime()}`;
   });
+  document.querySelectorAll("[data-dashboard-clock]").forEach((element) => {
+    element.textContent = `${new Date().toLocaleTimeString("en-SG", { hour12: false })} SGT`;
+  });
 }
 
 function startOpsHeaderClock() {
   updateOpsHeaderTime();
   if (opsHeaderClockTimer) window.clearInterval(opsHeaderClockTimer);
-  opsHeaderClockTimer = window.setInterval(updateOpsHeaderTime, 60_000);
+  opsHeaderClockTimer = window.setInterval(updateOpsHeaderTime, 1_000);
 }
 
 function header({ backHref = "", nav = false } = {}) {
@@ -155,16 +162,20 @@ function header({ backHref = "", nav = false } = {}) {
       <a class="brand" href="#/">
         ${shieldIcon()}
         <span>
-          <strong>QuickAid</strong>
-          <small>AI Emergency Coordination</small>
+          <strong>AIECC</strong>
+          <small>QuickAid Emergency Coordination</small>
         </span>
       </a>
       ${nav ? `
         <nav class="top-nav" aria-label="Main navigation">
-          <a href="#about">About</a>
-          <a href="#features">Features</a>
-          <a class="nav-auth-link" href="#/login">Sign in</a>
-          <a class="nav-auth-link nav-signup-link" href="#/signup">Sign up</a>
+          <span class="nav-link-group">
+            <a href="#about">About</a>
+            <a href="#features">Features</a>
+          </span>
+          <span class="nav-auth-group">
+            <a class="nav-auth-link" href="#/login">Sign in</a>
+            <a class="nav-auth-link nav-signup-link" href="#/signup">Sign up</a>
+          </span>
           <a class="nav-live-link" href="#/public-status"><span></span> Live Status</a>
         </nav>
       ` : `
@@ -187,7 +198,7 @@ function renderLanding() {
           <div class="hero-copy">
             <p class="eyebrow urgent-eyebrow"><span></span> Singapore emergency response</p>
             <h1>Helping Singapore respond faster during crisis</h1>
-            <p class="hero-summary">A unified operational coordination platform powered by AI for real-time emergency management and resource optimisation.</p>
+            <p class="hero-summary">A unified operational coordination platform for real-time emergency management and resource optimisation.</p>
             <div class="hero-actions">
               <a class="primary-button status-button" href="#/public-status">${icon("activity")} Live emergency status ${icon("arrowRight")}</a>
               <a class="secondary-button sign-in-button" href="#/login">Sign in</a>
@@ -220,7 +231,6 @@ function renderLanding() {
             <section class="ai-action">
               <span>AI suggestion</span>
               <p>Redirect PIE traffic · Deploy private shelter</p>
-              <button type="button">Apply</button>
             </section>
             <div class="response-track">
               <div><span>Detected</span><strong>12:42</strong></div>
@@ -259,7 +269,7 @@ function renderPublicEmergencyStatus() {
         <a class="brand" href="#/">
           ${shieldIcon()}
           <span>
-            <strong>QuickAid</strong>
+            <strong>AIECC</strong>
             <small>Public emergency status</small>
           </span>
         </a>
@@ -670,8 +680,6 @@ function renderPublicLogin() {
             <p>Sign in to report incidents, receive alerts, or offer support</p>
           </div>
           <form class="login-form" data-role="public">
-            <button class="google-button" type="button" data-google>${icon("google")} Continue with Google</button>
-            <div class="divider"><span>OR</span></div>
             <label>Email<input name="email" type="email" placeholder="irname@example.com" autocomplete="email" /></label>
             <label>Password
               <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" minlength="6" /></span>
@@ -797,13 +805,6 @@ async function submitVolunteerSignup(event) {
 
 function bindLoginForm() {
   const form = document.querySelector(".login-form");
-  const google = document.querySelector("[data-google]");
-
-  if (google) {
-    google.addEventListener("click", () => {
-      submitLogin("public", { provider: "google" });
-    });
-  }
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -827,7 +828,7 @@ async function submitLogin(role, payload) {
     });
     const result = await response.json();
     if (!response.ok) {
-      if (role === "public" && payload.provider !== "google" && response.status === 503 && isMongoUnavailable(result)) {
+      if (role === "public" && response.status === 503 && isMongoUnavailable(result)) {
         status.textContent = "MongoDB is not connected, so saved accounts cannot be checked. Check the shared MONGO_URI and restart the server.";
         status.classList.add("error");
         return;
@@ -891,22 +892,22 @@ async function renderDashboard() {
   simulationState.briefing = DEFAULT_SIMULATION_BRIEFING;
   simulationState.stats = { ...DEFAULT_DASHBOARD_STATS };
   app.innerHTML = `
-    <div class="page dashboard-page">
-      <main class="ops-dashboard">
-        <header class="ops-header">
-          <div>
-            <div class="ops-title-row">
-              <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
-                <span class="hamburger-lines" aria-hidden="true"></span>
-              </button>
-              <h1>AI-assisted national resource</h1>
+    <div class="page dashboard-page command-center-page">
+      <main class="ops-dashboard command-center-dashboard">
+        <header class="ops-header command-center-header">
+          <div class="command-brand-block">
+            <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
+              <span class="hamburger-lines" aria-hidden="true"></span>
+            </button>
+            <img class="command-brand-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
+            <div>
+              <h1>AIECC</h1>
             </div>
-            <p>Real-time emergency overview</p>
           </div>
-          <div class="ops-actions">
-            <span class="ops-live">${icon("activity")} Live</span>
-            <span class="updated-pill" data-last-updated>Last Updated : ${formatOpsUpdatedTime()}</span>
-            <button class="secondary-button compact" data-signout>Sign Out</button>
+          <div class="ops-actions command-header-actions">
+            <a class="new-incident-button" href="#/incident-simulator">${icon("alert")} New Incident</a>
+            <button class="command-icon-button" type="button" aria-label="Notifications">${icon("bell")}<span></span></button>
+            <button class="command-icon-button" type="button" aria-label="Settings">${icon("settings")}</button>
           </div>
         </header>
 
@@ -914,7 +915,7 @@ async function renderDashboard() {
         <aside class="ops-navigation" data-ops-menu aria-hidden="true" aria-label="Dashboard navigation">
           <div class="ops-navigation-header">
             <div>
-              <strong>QuickAid Operations</strong>
+              <strong>AIECC Operations</strong>
               <span>Professional workspace</span>
             </div>
             <button class="ops-menu-close" type="button" data-close-ops-menu aria-label="Close dashboard navigation">${icon("close")}</button>
@@ -931,69 +932,73 @@ async function renderDashboard() {
           </nav>
         </aside>
 
-        <section class="ops-alert">
-          ${icon("alert")}
-          <strong>Critical flooding detected in Jurong West. National University Hospital occupancy is high. There is an accident at TPE, currently SCDF is there rescuing the victim.</strong>
-        </section>
-
-        <section class="ops-metrics" aria-label="Live emergency metrics">
-          ${opsMetric({ id: "active-incidents", label: "Active Incidents", value: String(DEFAULT_DASHBOARD_STATS.activeIncidents), tone: "danger" })}
-          ${opsMetric({ id: "risk-alert", label: "Risk Alert", value: DEFAULT_DASHBOARD_STATS.riskAlert, tone: "success" })}
-          ${opsMetric({ id: "volunteers-standby", label: "Volunteers On Standby", value: String(DEFAULT_DASHBOARD_STATS.volunteersOnStandby), tone: "success" })}
-          ${opsMetric({ id: "shelters-available", label: "Shelters Available", value: String(DEFAULT_DASHBOARD_STATS.sheltersAvailable), tone: "success" })}
-        </section>
-
-        <section class="ops-grid">
-          <div class="ops-main-column">
-            <section class="live-map-card">
-              <h2>Singapore Live Map</h2>
-              <div class="singapore-map-wrap">
-                <div id="onemap-dashboard-map" class="onemap-dashboard-map">
-                  <span>Loading OneMap...</span>
-                </div>
-                <ul class="flood-severity-legend dashboard-map-legend" aria-label="Flood severity legend">
-                  ${SEVERITY_ORDER.map((level) => `<li><i style="background:${severityColor(level)}"></i>${level}</li>`).join("")}
-                </ul>
-                <ul class="dengue-severity-legend dashboard-map-legend" aria-label="Dengue cluster legend">
-                  ${DENGUE_BUCKETS.map((bucket) => `<li><i style="background:${bucket.color}"></i>${bucket.label}</li>`).join("")}
-                </ul>
+        <section class="command-shell">
+          <section class="command-map-stage" aria-label="Tactical operations map">
+            <div class="command-map-wrap">
+              <div id="onemap-dashboard-map" class="onemap-dashboard-map command-map" aria-label="Live flood map">
+                <span>Loading live flood map...</span>
               </div>
+            </div>
+          </section>
+
+          <aside class="command-case-sidebar" aria-label="Active cases">
+            <section class="command-cases-panel">
+              <div class="command-section-title">
+                <h2>Active Cases</h2>
+                <span>14 Total</span>
+              </div>
+              <div class="command-case-tools">
+                <button type="button">Critical Only</button>
+                <button type="button" aria-label="Tune filters">${icon("barChart")}</button>
+              </div>
+              <article class="command-case-card selected">
+                <div class="command-case-meta">
+                  <span>#9902 · Critical</span>
+                  <small>14m ago</small>
+                </div>
+                <h3>Flash Flood: Jurong East St 21</h3>
+                <p><span>${icon("droplet")} Flood</span><span>${icon("users")} 4 Units</span></p>
+                <a href="#/flood-map">Open Dashboard ${icon("arrowRight")}</a>
+              </article>
+              <article class="command-case-card">
+                <div class="command-case-meta">
+                  <span>#8741 · High Priority</span>
+                  <small>2h 10m</small>
+                </div>
+                <h3>Dengue Cluster: Tampines</h3>
+                <p><span>${icon("medical")} Medical</span></p>
+              </article>
+              <article class="command-case-card">
+                <div class="command-case-meta">
+                  <span>#9122 · Medium</span>
+                  <small>45m</small>
+                </div>
+                <h3>Fire: Woodlands Ind Park</h3>
+                <p><span>${icon("truck")} SCDF</span></p>
+              </article>
             </section>
 
-            <section class="live-activity">
-              <h2>Live Activity</h2>
-              <ul data-live-activity-list>
-                ${DEFAULT_LIVE_ACTIVITY.map((item) => `<li>${item}</li>`).join("")}
-              </ul>
-            </section>
-          </div>
-
-          <aside class="ops-side-column">
-            <section class="ops-panel threat-panel">
-              <h2>Risk Score</h2>
-              <strong class="critical-value risk-level-indicator risk-level-low" data-risk-score-label>LOW</strong>
-              <p data-risk-score-detail>No active simulation. Current dashboard is showing base demo conditions.</p>
-            </section>
-            <section class="ops-panel">
-              <h2>Resource Impact</h2>
-              <p data-resource-summary>${DEFAULT_RESOURCE_SUMMARY}</p>
-            </section>
-            <section class="ops-panel">
-              <h2>Alerts</h2>
-              <ul data-alert-list>
-                ${DEFAULT_ALERTS.map((alert) => `<li>${alert}</li>`).join("")}
-              </ul>
-            </section>
-            <section class="ops-panel route-panel">
-              <h2>AI Briefing</h2>
-              <p data-ai-briefing>${DEFAULT_SIMULATION_BRIEFING}</p>
+            <section class="command-profile-card">
+              <div class="command-profile-row">
+                <div class="command-avatar">${icon("users")}</div>
+                <div>
+                  <strong>${isProfessional ? "Commander J. Chen" : "QuickAid User"}</strong>
+                  <span>${isProfessional ? "Incident Commander" : "Public Operations View"}</span>
+                </div>
+              </div>
+              <button class="command-signout-button" type="button" data-signout>${icon("logOut")} Sign Out</button>
             </section>
           </aside>
         </section>
 
-        <footer class="connected-feeds">
-          <strong>Connected Feeds:</strong>
-          <span>SCDF | NEA | PUB | MOH | LTA</span>
+        <footer class="command-status-bar">
+          <div>
+            <span class="status-dot"></span>
+            <strong>Stable</strong>
+            <span>Core node: SG-NORTH-04</span>
+            <span>Server latency: 12ms</span>
+          </div>
+          <span data-dashboard-clock>${new Date().toLocaleTimeString("en-SG", { hour12: false })} SGT</span>
         </footer>
 
         ${!isProfessional ? `<p class="public-dashboard-note">Public view: operational actions are shown for transparency. Professional sign-in unlocks command actions.</p>` : ""}
@@ -1258,8 +1263,9 @@ function opsNavigationMarkup(active = "overview") {
     <div class="ops-menu-backdrop" data-ops-menu-backdrop hidden></div>
     <aside class="ops-navigation" data-ops-menu aria-hidden="true" aria-label="Dashboard navigation">
       <div class="ops-navigation-header">
+        <img class="ops-navigation-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
         <div>
-          <strong>QuickAid Operations</strong>
+          <strong>AIECC Operations</strong>
           <span>Professional workspace</span>
         </div>
         <button class="ops-menu-close" type="button" data-close-ops-menu aria-label="Close dashboard navigation">${icon("close")}</button>
@@ -1287,7 +1293,8 @@ function opsShellMarkup({ active = "overview", subtitle = "Real-time emergency o
               <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
                 <span class="hamburger-lines" aria-hidden="true"></span>
               </button>
-              <h1>AI-assisted national resource</h1>
+              <img class="ops-title-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
+              <h1>AIECC</h1>
             </div>
             <p>${subtitle}</p>
           </div>
