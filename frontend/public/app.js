@@ -86,6 +86,9 @@ const DISPATCH_ZONE_COORDS = {
   "Bukit Timah": [1.3294, 103.8021]
 };
 
+const LOCAL_VOLUNTEER_ACCOUNTS_KEY = "quickaid-local-volunteer-accounts";
+const DEMO_MODE_WARNING = "Running in demo mode (database unavailable)";
+
 function shieldIcon() {
   return `
     <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
@@ -538,6 +541,68 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function normalizeEmailAddress(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function loadLocalVolunteerAccounts() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_VOLUNTEER_ACCOUNTS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveLocalVolunteerAccounts(accounts) {
+  localStorage.setItem(LOCAL_VOLUNTEER_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+function buildLocalDemoSession(account) {
+  return {
+    role: "public",
+    email: normalizeEmailAddress(account.email),
+    issuedAt: new Date().toISOString(),
+    demoMode: true,
+    authSource: "localStorage"
+  };
+}
+
+function isMongoUnavailable(result) {
+  const errorText = String(result?.error || "").toLowerCase();
+  return errorText.includes("mongodb") && (errorText.includes("unavailable") || errorText.includes("connected"));
+}
+
+function createLocalVolunteerAccount(data) {
+  const accounts = loadLocalVolunteerAccounts();
+  const email = normalizeEmailAddress(data.email);
+  if (accounts.some((account) => normalizeEmailAddress(account.email) === email)) {
+    throw new Error("A local demo volunteer account already exists for this email. Sign in instead.");
+  }
+
+  const account = {
+    name: String(data.name || "").trim(),
+    email,
+    phone: String(data.phone || "").trim(),
+    postalCode: String(data.postalCode || "").trim(),
+    password: String(data.password || ""),
+    availability: String(data.availability || "").trim(),
+    skills: Array.isArray(data.skills) ? data.skills : [],
+    createdAt: new Date().toISOString()
+  };
+  accounts.push(account);
+  saveLocalVolunteerAccounts(accounts);
+  return account;
+}
+
+function authenticateLocalVolunteerAccount(payload) {
+  const email = normalizeEmailAddress(payload.email);
+  const password = String(payload.password || "");
+  return loadLocalVolunteerAccounts().find((account) => (
+    normalizeEmailAddress(account.email) === email && account.password === password
+  )) || null;
+}
+
 async function submitProfessionalSignup(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -684,6 +749,21 @@ async function submitVolunteerSignup(event) {
     });
     const result = await response.json();
     if (!response.ok) {
+      if (response.status === 503 && isMongoUnavailable(result)) {
+        try {
+          const account = createLocalVolunteerAccount(data);
+          localStorage.setItem("quickaid-session", JSON.stringify(buildLocalDemoSession(account)));
+          status.textContent = `Volunteer account created locally. ${DEMO_MODE_WARNING}`;
+          status.classList.add("success");
+          window.setTimeout(() => {
+            window.location.hash = "#/dashboard";
+          }, 650);
+        } catch (fallbackError) {
+          status.textContent = fallbackError.message;
+          status.classList.add("error");
+        }
+        return;
+      }
       status.textContent = formatAuthError(result, "Unable to create your account.");
       status.classList.add("error");
       return;
@@ -735,6 +815,21 @@ async function submitLogin(role, payload) {
     });
     const result = await response.json();
     if (!response.ok) {
+      if (role === "public" && payload.provider !== "google" && response.status === 503 && isMongoUnavailable(result)) {
+        const localAccount = authenticateLocalVolunteerAccount(payload);
+        if (localAccount) {
+          localStorage.setItem("quickaid-session", JSON.stringify(buildLocalDemoSession(localAccount)));
+          status.textContent = `Signed in with your local volunteer demo account. ${DEMO_MODE_WARNING}`;
+          status.classList.add("success");
+          window.setTimeout(() => {
+            window.location.hash = "#/dashboard";
+          }, 450);
+        } else {
+          status.textContent = `${DEMO_MODE_WARNING}. No matching local volunteer account was found for this email/password.`;
+          status.classList.add("error");
+        }
+        return;
+      }
       status.textContent = formatAuthError(result, "Unable to sign in.");
       status.classList.add("error");
       return;
@@ -753,19 +848,24 @@ async function submitLogin(role, payload) {
 
 async function renderDashboard() {
   let session;
-  try {
-    const response = await fetch("/api/auth/session");
-    const result = await response.json();
-    if (!response.ok) {
-      localStorage.removeItem("quickaid-session");
-      window.location.hash = "#/login";
+  const cachedSession = JSON.parse(localStorage.getItem("quickaid-session") || "null");
+  if (cachedSession?.demoMode && cachedSession?.authSource === "localStorage") {
+    session = cachedSession;
+  } else {
+    try {
+      const response = await fetch("/api/auth/session");
+      const result = await response.json();
+      if (!response.ok) {
+        localStorage.removeItem("quickaid-session");
+        window.location.hash = "#/login";
+        return;
+      }
+      session = result.session;
+      localStorage.setItem("quickaid-session", JSON.stringify(session));
+    } catch (error) {
+      app.innerHTML = `<p class="page-load-error">Unable to verify your session. Check that QuickAid is running.</p>`;
       return;
     }
-    session = result.session;
-    localStorage.setItem("quickaid-session", JSON.stringify(session));
-  } catch (error) {
-    app.innerHTML = `<p class="page-load-error">Unable to verify your session. Check that QuickAid is running.</p>`;
-    return;
   }
   const isProfessional = session?.role === "professional";
   emergencySpacesLoaded = false;
@@ -837,6 +937,12 @@ async function renderDashboard() {
           ${icon("alert")}
           <strong>Critical flooding detected in Jurong West. National University Hospital occupancy is high. There is an accident at TPE, currently SCDF is there rescuing the victim.</strong>
         </section>
+
+        ${session?.demoMode ? `
+          <section class="demo-mode-banner" role="status">
+            <strong>${DEMO_MODE_WARNING}</strong>
+          </section>
+        ` : ""}
 
         <section class="ops-metrics" aria-label="Live emergency metrics">
           ${opsMetric({ id: "active-incidents", label: "Active Incidents", value: String(DEFAULT_DASHBOARD_STATS.activeIncidents), tone: "danger" })}
