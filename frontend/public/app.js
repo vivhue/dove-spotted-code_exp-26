@@ -109,6 +109,7 @@ function icon(name) {
     info: '<circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />',
     alert: '<path d="M10.3 3.4 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.4a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01" />',
     activity: '<path d="M3 12h4l2.2-7 4.1 14 2.2-7H21" />',
+    barChart: '<path d="M3 3v18h18M7 16v-5M12 16v-9M17 16v-3" />',
     close: '<path d="M18 6 6 18M6 6l12 12" />',
     mapPin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0z" /><circle cx="12" cy="10" r="2.5" />',
     google: '<path d="M21.8 12.2c0-.7-.1-1.3-.2-1.9H12v3.6h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.2c1.9-1.8 3.1-4.4 3.1-7.4z" /><path d="M12 22c2.7 0 5-0.9 6.7-2.4L15.5 17a6 6 0 0 1-8.9-3.1H3.3v2.7A10 10 0 0 0 12 22z" /><path d="M6.6 13.9a6 6 0 0 1 0-3.8V7.4H3.3a10 10 0 0 0 0 9.2l3.3-2.7z" /><path d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-8.7 5.4l3.3 2.7A6 6 0 0 1 12 6z" />'
@@ -908,6 +909,7 @@ async function renderDashboard() {
             <a href="#/flood-map">${icon("mapPin")}<span><strong>Live Flood Map</strong><small>View active flood locations</small></span></a>
             <a href="#/evacuation-routing">${icon("arrowRight")}<span><strong>Evacuation Routing</strong><small>Plan routes around live blockages</small></span></a>
             <a href="#/risk-prediction">${icon("activity")}<span><strong>Risk Prediction</strong><small>Review live API and DB report risk scores</small></span></a>
+            <a href="#/analytics">${icon("barChart")}<span><strong>Analytics</strong><small>Analyze emergency response patterns</small></span></a>
             <a href="#/incident-simulator">${icon("alert")}<span><strong>Incident Simulator</strong><small>Run predefined response scenarios</small></span></a>
             <a href="#/emergency-spaces">${icon("building")}<span><strong>Emergency Spaces</strong><small>Review overflow shelter capacity</small></span></a>
             <a href="#/volunteer-dispatch">${icon("users")}<span><strong>Volunteer Dispatch</strong><small>Match and deploy volunteers</small></span></a>
@@ -1180,6 +1182,7 @@ function opsNavigationMarkup(active = "overview") {
     { key: "flood", href: "#/flood-map", iconName: "mapPin", title: "Live Flood Map", detail: "View active flood locations" },
     { key: "evacuation", href: "#/evacuation-routing", iconName: "arrowRight", title: "Evacuation Routing", detail: "Plan routes around live blockages" },
     { key: "risk", href: "#/risk-prediction", iconName: "activity", title: "Risk Prediction", detail: "Review live API and DB report risk scores" },
+    { key: "analytics", href: "#/analytics", iconName: "barChart", title: "Analytics", detail: "Analyze emergency response patterns" },
     { key: "simulator", href: "#/incident-simulator", iconName: "alert", title: "Incident Simulator", detail: "Run predefined response scenarios" },
     { key: "spaces", href: "#/emergency-spaces", iconName: "building", title: "Emergency Spaces", detail: "Review overflow shelter capacity" },
     { key: "dispatch", href: "#/volunteer-dispatch", iconName: "users", title: "Volunteer Dispatch", detail: "Match and deploy volunteers" }
