@@ -145,6 +145,26 @@ input {
   color: #a92525;
 }
 
+.top-nav .nav-auth-link {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 16px;
+  background: #fff;
+}
+
+.top-nav .nav-signup-link {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.top-nav .nav-signup-link:hover {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #fff;
+}
+
 .nav-live-link span,
 .live-badge i {
   width: 9px;
@@ -228,18 +248,34 @@ p {
 .hero-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 14px;
   margin-top: 28px;
 }
 
 .status-button {
   min-height: 52px;
+  flex: 0 1 auto;
 }
 
-.sign-in-button {
+.sign-in-button,
+.sign-up-button {
   min-height: 52px;
+  min-width: 132px;
   padding-inline: 24px;
+  flex: 0 0 auto;
+}
+
+.sign-up-button {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.sign-up-button:hover {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #fff;
 }
 
 .access-note {
@@ -940,6 +976,10 @@ p {
   font-size: 13px;
 }
 
+.auth-switch-line {
+  margin-top: 22px;
+}
+
 .signup-line a {
   font-weight: 800;
 }
@@ -1302,7 +1342,10 @@ p {
 
 .ops-navigation.open ~ .ops-grid .leaflet-control-container,
 .ops-navigation.open ~ .ops-grid .leaflet-top,
-.ops-navigation.open ~ .ops-grid .leaflet-bottom {
+.ops-navigation.open ~ .ops-grid .leaflet-bottom,
+.ops-navigation.open ~ .ops-feature-shell .leaflet-control-container,
+.ops-navigation.open ~ .ops-feature-shell .leaflet-top,
+.ops-navigation.open ~ .ops-feature-shell .leaflet-bottom {
   pointer-events: none;
 }
 
@@ -1441,6 +1484,18 @@ p {
 .ops-live .icon {
   width: 22px;
   height: 22px;
+}
+
+.ops-signup-button {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.ops-signup-button:hover {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #fff;
 }
 
 .ops-alert {

@@ -4,12 +4,16 @@ const routes = {
   "": renderLanding,
   "#/": renderLanding,
   "#/login": renderRoleSelection,
+  "#/signup": renderSignupSelection,
   "#/login/professional": renderProfessionalLogin,
   "#/signup/professional": renderProfessionalSignup,
   "#/login/public": renderPublicLogin,
   "#/signup/volunteer": renderVolunteerSignup,
   "#/public-status": renderPublicEmergencyStatus,
   "#/dashboard": renderDashboard,
+  "#/incident-simulator": renderIncidentSimulatorPage,
+  "#/emergency-spaces": renderEmergencySpacesPage,
+  "#/volunteer-dispatch": renderVolunteerDispatchPage,
   "#/flood-map": renderFloodMap,
   "#/evacuation-routing": renderEvacuationRouting,
   "#/risk-prediction": renderRiskPrediction,
@@ -28,6 +32,7 @@ let emergencySpacesLoaded = false;
 let emergencySpacesSeed = [];
 let simulationScenarios = [];
 let opsMenuKeydownHandler = null;
+let opsHeaderClockTimer = null;
 
 const DEFAULT_DASHBOARD_STATS = {
   activeIncidents: 5,
@@ -114,6 +119,26 @@ function icon(name) {
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
 }
 
+function formatOpsUpdatedTime(date = new Date()) {
+  return date.toLocaleTimeString("en-SG", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }).toUpperCase();
+}
+
+function updateOpsHeaderTime() {
+  document.querySelectorAll("[data-last-updated]").forEach((element) => {
+    element.textContent = `Last Updated : ${formatOpsUpdatedTime()}`;
+  });
+}
+
+function startOpsHeaderClock() {
+  updateOpsHeaderTime();
+  if (opsHeaderClockTimer) window.clearInterval(opsHeaderClockTimer);
+  opsHeaderClockTimer = window.setInterval(updateOpsHeaderTime, 60_000);
+}
+
 function header({ backHref = "", nav = false } = {}) {
   return `
     <header class="site-header">
@@ -128,7 +153,8 @@ function header({ backHref = "", nav = false } = {}) {
         <nav class="top-nav" aria-label="Main navigation">
           <a href="#about">About</a>
           <a href="#features">Features</a>
-          <a href="#contact">Contact</a>
+          <a class="nav-auth-link" href="#/login">Sign in</a>
+          <a class="nav-auth-link nav-signup-link" href="#/signup">Sign up</a>
           <a class="nav-live-link" href="#/public-status"><span></span> Live Status</a>
         </nav>
       ` : `
@@ -155,6 +181,7 @@ function renderLanding() {
             <div class="hero-actions">
               <a class="primary-button status-button" href="#/public-status">${icon("activity")} Live emergency status ${icon("arrowRight")}</a>
               <a class="secondary-button sign-in-button" href="#/login">Sign in</a>
+              <a class="secondary-button sign-up-button" href="#/signup">Sign up</a>
             </div>
             <p class="access-note">For emergency professionals, residents, and volunteers.</p>
           </div>
@@ -447,6 +474,41 @@ function roleCard({ href, iconName, title, subtitle, items, action }) {
       </ul>
       <span class="role-action">${action} ${icon("arrowRight")}</span>
     </a>
+  `;
+}
+
+function renderSignupSelection() {
+  app.innerHTML = `
+    <div class="page auth-page">
+      ${header({ backHref: "#/" })}
+      <main class="center-stage">
+        <section class="role-panel" aria-labelledby="signup-heading">
+          <div class="auth-heading">
+            <h1 id="signup-heading">Create Your Account</h1>
+            <p>Choose the account type that matches how you will use QuickAid</p>
+          </div>
+          <div class="role-options">
+            ${roleCard({
+              href: "#/signup/professional",
+              iconName: "building",
+              title: "Professional Sign Up",
+              subtitle: "For authorised response teams",
+              items: ["Agency approval required", "Operations dashboard access", "Resource coordination tools"],
+              action: "Create Professional Account"
+            })}
+            ${roleCard({
+              href: "#/signup/volunteer",
+              iconName: "users",
+              title: "Volunteer Sign Up",
+              subtitle: "For community responders",
+              items: ["Register availability", "Share useful skills", "Receive dispatch tasks"],
+              action: "Create Volunteer Account"
+            })}
+          </div>
+          <p class="signup-line auth-switch-line">Already have an account? <a href="#/login">Sign in</a></p>
+        </section>
+      </main>
+    </div>
   `;
 }
 
@@ -908,7 +970,7 @@ async function renderDashboard() {
           </div>
           <div class="ops-actions">
             <span class="ops-live">${icon("activity")} Live</span>
-            <span class="updated-pill">Last Updated : 5:00 PM</span>
+            <span class="updated-pill" data-last-updated>Last Updated : ${formatOpsUpdatedTime()}</span>
             <button class="secondary-button compact" data-signout>Sign Out</button>
           </div>
         </header>
@@ -923,13 +985,13 @@ async function renderDashboard() {
             <button class="ops-menu-close" type="button" data-close-ops-menu aria-label="Close dashboard navigation">${icon("close")}</button>
           </div>
           <nav class="ops-navigation-links">
-            <button class="active" type="button" data-dashboard-overview>${icon("activity")}<span><strong>Overview</strong><small>Live national resource dashboard</small></span></button>
+            <a class="active" href="#/dashboard">${icon("activity")}<span><strong>Overview</strong><small>Live national resource dashboard</small></span></a>
             <a href="#/flood-map">${icon("mapPin")}<span><strong>Live Flood Map</strong><small>View active flood locations</small></span></a>
             <a href="#/evacuation-routing">${icon("arrowRight")}<span><strong>Evacuation Routing</strong><small>Plan routes around live blockages</small></span></a>
             <a href="#/risk-prediction">${icon("activity")}<span><strong>Risk Prediction</strong><small>Review live API and DB report risk scores</small></span></a>
-            <button type="button" data-open-simulator>${icon("alert")}<span><strong>Incident Simulator</strong><small>Run predefined response scenarios</small></span></button>
-            <button type="button" data-open-emergency-spaces>${icon("building")}<span><strong>Emergency Spaces</strong><small>Review overflow shelter capacity</small></span></button>
-            <button type="button" data-open-volunteer-dispatch>${icon("users")}<span><strong>Volunteer Dispatch</strong><small>Match and deploy volunteers</small></span></button>
+            <a href="#/incident-simulator">${icon("alert")}<span><strong>Incident Simulator</strong><small>Run predefined response scenarios</small></span></a>
+            <a href="#/emergency-spaces">${icon("building")}<span><strong>Emergency Spaces</strong><small>Review overflow shelter capacity</small></span></a>
+            <a href="#/volunteer-dispatch">${icon("users")}<span><strong>Volunteer Dispatch</strong><small>Match and deploy volunteers</small></span></a>
           </nav>
         </aside>
 
@@ -1004,57 +1066,6 @@ async function renderDashboard() {
           <span>SCDF | NEA | PUB | MOH | LTA</span>
         </footer>
 
-        <section class="simulation-suite-section" data-simulation-section hidden>
-          <div class="simulation-suite-header">
-            <div>
-              <p class="eyebrow">Scenario operations</p>
-              <h2>Incident Simulator</h2>
-              <p class="simulation-suite-note">Simulation mode: This demo uses predefined disaster scenarios to model demand across incidents, resources, volunteers, supplies, alerts, and risk scores.</p>
-            </div>
-          </div>
-          <section class="incident-simulator-card">
-            <h3>Scenario Controls</h3>
-            <label class="simulation-field">
-              Scenario
-              <select data-scenario-select disabled>
-                <option value="">Loading scenarios...</option>
-              </select>
-            </label>
-            <div class="incident-simulator-preview" data-simulation-preview>
-              <p class="simulation-empty">Load a scenario to preview its demand profile.</p>
-            </div>
-            <div class="incident-simulator-actions">
-              <button class="secondary-button compact" type="button" data-run-simulation disabled>Run Simulation</button>
-              <button class="secondary-button compact" type="button" data-reset-simulation disabled>Reset Simulation</button>
-            </div>
-          </section>
-        </section>
-
-        <section class="emergency-spaces-panel-section" data-emergency-spaces-section hidden>
-          <section class="emergency-spaces-section">
-            <div class="emergency-spaces-header">
-              <div>
-                <p class="eyebrow">Emergency resources</p>
-                <h2>Emergency Conversion Spaces</h2>
-                <p class="emergency-spaces-subtitle">Shelter demand is allocated automatically from the active incident scenario. Emergency spaces remain independent from hospital data.</p>
-              </div>
-            </div>
-            <p class="emergency-spaces-message" data-emergency-spaces-message>Run a scenario to see how emergency overflow spaces are allocated.</p>
-            <div class="emergency-spaces-grid" data-emergency-spaces-grid></div>
-          </section>
-        </section>
-
-        <section class="volunteer-dispatch-section" data-volunteer-dispatch-section hidden>
-          <div class="volunteer-dispatch-header">
-            <div>
-              <p class="eyebrow">Volunteer operations</p>
-              <h2>Volunteer Dispatch Workflow</h2>
-              <p class="volunteer-dispatch-note">Dispatch uses seed volunteer data and simulated notifications for now. Profile updates, assignments, and status changes happen instantly without Telegram or MongoDB persistence.</p>
-            </div>
-          </div>
-          <div data-volunteer-dispatch-content></div>
-        </section>
-
         ${!isProfessional ? `<p class="public-dashboard-note">Public view: operational actions are shown for transparency. Professional sign-in unlocks command actions.</p>` : ""}
       </main>
     </div>
@@ -1088,29 +1099,67 @@ async function renderDashboard() {
   };
   document.addEventListener("keydown", opsMenuKeydownHandler);
 
-  document.querySelector("[data-dashboard-overview]").addEventListener("click", () => {
-    closeOpsMenu();
-    document.querySelector(".ops-alert").scrollIntoView({ behavior: "smooth" });
-  });
-
   document.querySelector("[data-signout]").addEventListener("click", async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     localStorage.removeItem("quickaid-session");
     window.location.hash = "#/";
   });
 
-  document.querySelector("[data-open-simulator]").addEventListener("click", () => {
-    closeOpsMenu();
-    showIncidentSimulatorSection();
+  initOneMapDashboard();
+  renderQuickStats();
+  renderSimulationInsights();
+  startOpsHeaderClock();
+}
+
+async function renderIncidentSimulatorPage() {
+  const session = await getOpsSession();
+  if (!session) return;
+
+  simulationScenarios = [];
+  simulationState.activeScenario = null;
+  simulationState.selectedScenarioId = "";
+  simulationState.incidents = [];
+  simulationState.resources = [];
+  simulationState.volunteers = [];
+  simulationState.supplies = [];
+  simulationState.alerts = [];
+  simulationState.riskScores = [];
+  simulationState.briefing = DEFAULT_SIMULATION_BRIEFING;
+  simulationState.stats = { ...DEFAULT_DASHBOARD_STATS };
+
+  app.innerHTML = opsShellMarkup({
+    active: "simulator",
+    subtitle: "Scenario operations",
+    session,
+    content: `
+      <section class="simulation-suite-section ops-standalone-section" data-simulation-section>
+        <div class="simulation-suite-header">
+          <div>
+            <p class="eyebrow">Scenario operations</p>
+            <h2>Incident Simulator</h2>
+            <p class="simulation-suite-note">Simulation mode: This demo uses predefined disaster scenarios to model demand across incidents, resources, volunteers, supplies, alerts, and risk scores.</p>
+          </div>
+        </div>
+        <section class="incident-simulator-card">
+          <h3>Scenario Controls</h3>
+          <label class="simulation-field">
+            Scenario
+            <select data-scenario-select disabled>
+              <option value="">Loading scenarios...</option>
+            </select>
+          </label>
+          <div class="incident-simulator-preview" data-simulation-preview>
+            <p class="simulation-empty">Load a scenario to preview its demand profile.</p>
+          </div>
+          <div class="incident-simulator-actions">
+            <button class="secondary-button compact" type="button" data-run-simulation disabled>Run Simulation</button>
+            <button class="secondary-button compact" type="button" data-reset-simulation disabled>Reset Simulation</button>
+          </div>
+        </section>
+      </section>
+    `
   });
-  document.querySelector("[data-open-emergency-spaces]").addEventListener("click", () => {
-    closeOpsMenu();
-    showEmergencySpacesSection();
-  });
-  document.querySelector("[data-open-volunteer-dispatch]").addEventListener("click", () => {
-    closeOpsMenu();
-    showVolunteerDispatchSection(session);
-  });
+  bindOpsShell();
   document.querySelector("[data-scenario-select]").addEventListener("change", (event) => {
     simulationState.selectedScenarioId = event.currentTarget.value;
     renderIncidentSimulator();
@@ -1119,10 +1168,76 @@ async function renderDashboard() {
     runSimulation(simulationState.selectedScenarioId);
   });
   document.querySelector("[data-reset-simulation]").addEventListener("click", resetSimulation);
+  await Promise.all([fetchEmergencySpaces(), fetchSimulationScenarios()]);
+}
 
-  initOneMapDashboard();
-  renderQuickStats();
-  renderSimulationInsights();
+async function renderEmergencySpacesPage() {
+  const session = await getOpsSession();
+  if (!session) return;
+
+  emergencySpacesLoaded = false;
+  emergencySpacesState = [];
+  emergencySpacesSeed = [];
+
+  app.innerHTML = opsShellMarkup({
+    active: "spaces",
+    subtitle: "Emergency resources",
+    session,
+    content: `
+      <section class="emergency-spaces-panel-section ops-standalone-section" data-emergency-spaces-section>
+        <section class="emergency-spaces-section">
+          <div class="emergency-spaces-header">
+            <div>
+              <p class="eyebrow">Emergency resources</p>
+              <h2>Emergency Conversion Spaces</h2>
+              <p class="emergency-spaces-subtitle">Shelter demand is allocated automatically from the active incident scenario. Emergency spaces remain independent from hospital data.</p>
+            </div>
+          </div>
+          <p class="emergency-spaces-message" data-emergency-spaces-message>Loading emergency conversion spaces...</p>
+          <div class="emergency-spaces-grid" data-emergency-spaces-grid></div>
+        </section>
+      </section>
+    `
+  });
+  bindOpsShell();
+  await fetchEmergencySpaces();
+}
+
+async function renderVolunteerDispatchPage() {
+  const session = await getOpsSession();
+  if (!session) return;
+
+  volunteerDispatchState.loaded = false;
+  volunteerDispatchState.volunteers = [];
+  volunteerDispatchState.selectedIncidentId = "";
+  volunteerDispatchState.filters = {
+    skill: "",
+    zone: "",
+    availability: "",
+    status: ""
+  };
+  volunteerDispatchState.smartMatchActive = false;
+  volunteerDispatchState.smartMatchScores = new Map();
+
+  app.innerHTML = opsShellMarkup({
+    active: "dispatch",
+    subtitle: "Volunteer operations",
+    session,
+    content: `
+      <section class="volunteer-dispatch-section ops-standalone-section" data-volunteer-dispatch-section>
+        <div class="volunteer-dispatch-header">
+          <div>
+            <p class="eyebrow">Volunteer operations</p>
+            <h2>Volunteer Dispatch Workflow</h2>
+            <p class="volunteer-dispatch-note">Dispatch uses seed volunteer data and simulated notifications for now. Profile updates, assignments, and status changes happen instantly without Telegram or MongoDB persistence.</p>
+          </div>
+        </div>
+        <div data-volunteer-dispatch-content></div>
+      </section>
+    `
+  });
+  bindOpsShell();
+  await showVolunteerDispatchSection(session);
 }
 
 function formatAuthError(result, fallback) {
@@ -1130,6 +1245,129 @@ function formatAuthError(result, fallback) {
     return Object.values(result.fields).join(" ");
   }
   return result.error || fallback;
+}
+
+async function getOpsSession({ redirect = true } = {}) {
+  try {
+    const response = await fetch("/api/auth/session");
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Unable to verify session.");
+    localStorage.setItem("quickaid-session", JSON.stringify(result.session));
+    return result.session;
+  } catch (error) {
+    localStorage.removeItem("quickaid-session");
+    if (redirect) window.location.hash = "#/login";
+    return null;
+  }
+}
+
+function opsNavigationMarkup(active = "overview") {
+  const navItems = [
+    { key: "overview", href: "#/dashboard", iconName: "activity", title: "Overview", detail: "Live national resource dashboard" },
+    { key: "flood", href: "#/flood-map", iconName: "mapPin", title: "Live Flood Map", detail: "View active flood locations" },
+    { key: "evacuation", href: "#/evacuation-routing", iconName: "arrowRight", title: "Evacuation Routing", detail: "Plan routes around live blockages" },
+    { key: "risk", href: "#/risk-prediction", iconName: "activity", title: "Risk Prediction", detail: "Review live API and DB report risk scores" },
+    { key: "simulator", href: "#/incident-simulator", iconName: "alert", title: "Incident Simulator", detail: "Run predefined response scenarios" },
+    { key: "spaces", href: "#/emergency-spaces", iconName: "building", title: "Emergency Spaces", detail: "Review overflow shelter capacity" },
+    { key: "dispatch", href: "#/volunteer-dispatch", iconName: "users", title: "Volunteer Dispatch", detail: "Match and deploy volunteers" }
+  ];
+  return `
+    <div class="ops-menu-backdrop" data-ops-menu-backdrop hidden></div>
+    <aside class="ops-navigation" data-ops-menu aria-hidden="true" aria-label="Dashboard navigation">
+      <div class="ops-navigation-header">
+        <div>
+          <strong>QuickAid Operations</strong>
+          <span>Professional workspace</span>
+        </div>
+        <button class="ops-menu-close" type="button" data-close-ops-menu aria-label="Close dashboard navigation">${icon("close")}</button>
+      </div>
+      <nav class="ops-navigation-links">
+        ${navItems.map((item) => `
+          <a class="${item.key === active ? "active" : ""}" href="${item.href}">
+            ${icon(item.iconName)}
+            <span><strong>${item.title}</strong><small>${item.detail}</small></span>
+          </a>
+        `).join("")}
+      </nav>
+    </aside>
+  `;
+}
+
+function opsShellMarkup({ active = "overview", subtitle = "Real-time emergency overview", session = null, content = "" } = {}) {
+  const isSignedIn = Boolean(session);
+  return `
+    <div class="page dashboard-page">
+      <main class="ops-dashboard">
+        <header class="ops-header">
+          <div>
+            <div class="ops-title-row">
+              <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
+                <span class="hamburger-lines" aria-hidden="true"></span>
+              </button>
+              <h1>AI-assisted national resource</h1>
+            </div>
+            <p>${subtitle}</p>
+          </div>
+          <div class="ops-actions">
+            <span class="ops-live">${icon("activity")} Live</span>
+            <span class="updated-pill" data-last-updated>Last Updated : ${formatOpsUpdatedTime()}</span>
+            ${isSignedIn
+              ? `<button class="secondary-button compact" data-auth-action>Sign Out</button>`
+              : `<button class="secondary-button compact" data-auth-action>Sign in</button><a class="secondary-button compact ops-signup-button" href="#/signup">Sign up</a>`}
+          </div>
+        </header>
+        ${opsNavigationMarkup(active)}
+        ${content}
+      </main>
+    </div>
+  `;
+}
+
+function bindOpsShell() {
+  const opsMenu = document.querySelector("[data-ops-menu]");
+  const opsMenuBackdrop = document.querySelector("[data-ops-menu-backdrop]");
+  const opsMenuButton = document.querySelector("[data-open-ops-menu]");
+  const closeButton = document.querySelector("[data-close-ops-menu]");
+  if (!opsMenu || !opsMenuBackdrop || !opsMenuButton || !closeButton) return;
+
+  function closeOpsMenu() {
+    opsMenu.classList.remove("open");
+    opsMenu.setAttribute("aria-hidden", "true");
+    opsMenuBackdrop.hidden = true;
+    opsMenuButton.setAttribute("aria-expanded", "false");
+  }
+
+  function openOpsMenu() {
+    opsMenu.classList.add("open");
+    opsMenu.setAttribute("aria-hidden", "false");
+    opsMenuBackdrop.hidden = false;
+    opsMenuButton.setAttribute("aria-expanded", "true");
+    closeButton.focus();
+  }
+
+  opsMenuButton.addEventListener("click", openOpsMenu);
+  closeButton.addEventListener("click", closeOpsMenu);
+  opsMenuBackdrop.addEventListener("click", closeOpsMenu);
+  document.querySelectorAll(".ops-navigation-links a").forEach((link) => {
+    link.addEventListener("click", closeOpsMenu);
+  });
+
+  opsMenuKeydownHandler = (event) => {
+    if (event.key === "Escape" && opsMenu.classList.contains("open")) closeOpsMenu();
+  };
+  document.addEventListener("keydown", opsMenuKeydownHandler);
+
+  document.querySelector("[data-auth-action]")?.addEventListener("click", async () => {
+    const session = JSON.parse(localStorage.getItem("quickaid-session") || "null");
+    if (!session) {
+      window.location.hash = "#/login";
+      return;
+    }
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    localStorage.removeItem("quickaid-session");
+    window.location.hash = "#/";
+  });
+  startOpsHeaderClock();
 }
 
 function metric(label, value) {
@@ -1344,30 +1582,6 @@ async function fetchEmergencySpaces() {
     emergencySpacesLoaded = false;
     const message = document.querySelector("[data-emergency-spaces-message]");
     if (message) message.textContent = error.message || "Unable to load emergency spaces.";
-  }
-  renderEmergencySpaces();
-}
-
-async function showIncidentSimulatorSection() {
-  const section = document.querySelector("[data-simulation-section]");
-  if (!section) return;
-  section.hidden = false;
-  section.scrollIntoView({ behavior: "smooth", block: "start" });
-  if (!emergencySpacesLoaded) {
-    await Promise.all([fetchEmergencySpaces(), fetchSimulationScenarios()]);
-    return;
-  }
-  renderIncidentSimulator();
-}
-
-async function showEmergencySpacesSection() {
-  const section = document.querySelector("[data-emergency-spaces-section]");
-  if (!section) return;
-  section.hidden = false;
-  section.scrollIntoView({ behavior: "smooth", block: "start" });
-  if (!emergencySpacesLoaded) {
-    await fetchEmergencySpaces();
-    return;
   }
   renderEmergencySpaces();
 }
@@ -2205,10 +2419,13 @@ function loadStylesheet(href) {
 }
 
 async function renderFloodMap() {
-  app.innerHTML = `
-    <div class="page flood-map-page">
-      ${header({ backHref: "#/dashboard" })}
-      <main class="flood-map-shell">
+  const session = await getOpsSession({ redirect: false });
+  app.innerHTML = opsShellMarkup({
+    active: "flood",
+    subtitle: "Live flood and dengue monitoring",
+    session,
+    content: `
+      <section class="flood-map-shell ops-feature-shell">
         <section class="dashboard-title">
           <div>
             <p class="eyebrow">Live map · OneMap basemap + PUB flood alerts + NEA dengue clusters</p>
@@ -2237,9 +2454,10 @@ async function renderFloodMap() {
             <div class="flood-alert-list" data-dengue-list><p class="map-empty">Loading…</p></div>
           </aside>
         </div>
-      </main>
-    </div>
-  `;
+      </section>
+    `
+  });
+  bindOpsShell();
 
   const map = L.map("flood-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
   addOneMapTileLayer(map);
@@ -2430,10 +2648,13 @@ function evacGeolocationErrorMessage(error) {
 }
 
 async function renderEvacuationRouting() {
-  app.innerHTML = `
-    <div class="page flood-map-page">
-      ${header({ backHref: "#/dashboard" })}
-      <main class="flood-map-shell">
+  const session = await getOpsSession({ redirect: false });
+  app.innerHTML = opsShellMarkup({
+    active: "evacuation",
+    subtitle: "Dynamic evacuation routing",
+    session,
+    content: `
+      <section class="flood-map-shell ops-feature-shell">
         <section class="dashboard-title">
           <div>
             <p class="eyebrow">OneMap basemap · openrouteservice · live flood, dengue & traffic hazards</p>
@@ -2504,17 +2725,13 @@ async function renderEvacuationRouting() {
             <div class="flood-alert-list" data-evac-hazards><p class="map-empty">Loading…</p></div>
           </aside>
         </div>
-      </main>
-    </div>
-  `;
+      </section>
+    `
+  });
+  bindOpsShell();
 
   const map = L.map("evacuation-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
-  L.tileLayer("https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png", {
-    detectRetina: true,
-    maxZoom: 19,
-    minZoom: 11,
-    attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
-  }).addTo(map);
+  addOneMapTileLayer(map);
 
   const floodLayer = L.layerGroup().addTo(map);
   const incidentLayer = L.layerGroup().addTo(map);
@@ -2941,10 +3158,13 @@ async function renderEvacuationRouting() {
 }
 
 async function renderRiskPrediction() {
-  app.innerHTML = `
-    <div class="page risk-page">
-      ${header({ backHref: "#/dashboard" })}
-      <main class="risk-shell">
+  const session = await getOpsSession({ redirect: false });
+  app.innerHTML = opsShellMarkup({
+    active: "risk",
+    subtitle: "Risk prediction",
+    session,
+    content: `
+      <section class="risk-shell ops-feature-shell">
         <section class="risk-title">
           <p class="eyebrow">Risk Prediction</p>
           <h1>Singapore Live Risk Map</h1>
@@ -2996,9 +3216,10 @@ async function renderRiskPrediction() {
             </div>
           </aside>
         </div>
-      </main>
-    </div>
-  `;
+      </section>
+    `
+  });
+  bindOpsShell();
 
   // Load Leaflet and fetch heatmap
   try {
@@ -3526,6 +3747,10 @@ function renderRoute() {
   if (publicStatusTimer) {
     window.clearInterval(publicStatusTimer);
     publicStatusTimer = null;
+  }
+  if (opsHeaderClockTimer) {
+    window.clearInterval(opsHeaderClockTimer);
+    opsHeaderClockTimer = null;
   }
   const renderer = routes[window.location.hash] || renderLanding;
   renderer();
