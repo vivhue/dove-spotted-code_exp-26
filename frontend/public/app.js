@@ -247,7 +247,6 @@ function renderPublicEmergencyStatus() {
             </section>
 
             <div class="public-status-buttons">
-              <a class="primary-button public-map-button" href="#/flood-map">${icon("mapPin")} View live flood map</a>
               <a class="secondary-button public-guidance-button" href="https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/civil-defence-emergency--handbook---interactive-tools" target="_blank" rel="noopener noreferrer" data-public-guidance-link>${icon("arrowRight")} <span data-public-guidance-label>SCDF emergency guidance</span></a>
             </div>
 
@@ -272,12 +271,84 @@ function renderPublicEmergencyStatus() {
             </footer>
           </aside>
         </section>
+
+        <section class="public-features-section" aria-label="Risk prediction and analytics">
+          <div class="public-features-grid">
+            <article class="public-feature-card">
+              <p class="eyebrow">AI Risk Prediction</p>
+              <h2>Singapore Live Risk Map</h2>
+              <p class="public-feature-desc">Real-time flood and hazard risk scores across Singapore zones, powered by live PUB data and AI predictions.</p>
+              <div class="public-feature-stats" aria-label="Risk summary">
+                <div class="metric-card"><span>Active Alerts</span><strong id="pub-risk-alerts">—</strong></div>
+                <div class="metric-card"><span>Highest Severity</span><strong id="pub-risk-severity">—</strong></div>
+              </div>
+              <div class="public-feature-actions">
+                <a class="primary-button" href="#/risk-prediction">${icon("activity")} Explore Risk Prediction ${icon("arrowRight")}</a>
+                <a class="secondary-button public-flood-map-btn" href="#/flood-map">${icon("mapPin")} View Live Flood Map</a>
+              </div>
+            </article>
+
+            <article class="public-feature-card">
+              <p class="eyebrow">Strategic Analytics</p>
+              <h2>Analytics &amp; Insights</h2>
+              <p class="public-feature-desc">Historical incident trends, shelter utilisation, and AI-generated strategic recommendations for decision-makers.</p>
+              <div class="public-feature-stats" aria-label="Analytics summary">
+                <div class="metric-card"><span>Total Incidents</span><strong id="pub-stat-incidents">—</strong></div>
+                <div class="metric-card"><span>High Risk Zones</span><strong id="pub-stat-zones">—</strong></div>
+                <div class="metric-card"><span>Avg Response</span><strong id="pub-stat-response">—</strong></div>
+                <div class="metric-card"><span>Shelter Util.</span><strong id="pub-stat-shelter">—</strong></div>
+              </div>
+              <div class="public-feature-actions">
+                <a class="primary-button" href="#/analytics">${icon("activity")} Explore Analytics ${icon("arrowRight")}</a>
+                <a class="secondary-button public-flood-map-btn" href="#/flood-map">${icon("mapPin")} View Live Flood Map</a>
+              </div>
+            </article>
+          </div>
+        </section>
       </main>
     </div>
   `;
 
   refreshPublicEmergencyStatus();
   publicStatusTimer = window.setInterval(refreshPublicEmergencyStatus, 120_000);
+  refreshPublicFeatureStats();
+}
+
+async function refreshPublicFeatureStats() {
+  try {
+    const [floodResp, analyticsResp] = await Promise.all([
+      fetch("/api/flood-alerts"),
+      fetch("/api/analytics/summary")
+    ]);
+
+    if (floodResp.ok) {
+      const payload = await floodResp.json();
+      const records = payload.records || [];
+      const active = activeFloodReadings(records);
+      const alertsEl = document.getElementById("pub-risk-alerts");
+      const severityEl = document.getElementById("pub-risk-severity");
+      if (alertsEl) alertsEl.textContent = active.length || "0";
+      if (severityEl) {
+        const severities = active.map(e => e.reading?.severity || "").filter(Boolean);
+        const highest = ["Extreme", "Severe", "Moderate", "Minor"].find(s => severities.includes(s));
+        severityEl.textContent = highest || (active.length ? "Active" : "None");
+      }
+    }
+
+    if (analyticsResp.ok) {
+      const stats = await analyticsResp.json();
+      const incEl = document.getElementById("pub-stat-incidents");
+      const zonesEl = document.getElementById("pub-stat-zones");
+      const respEl = document.getElementById("pub-stat-response");
+      const shelterEl = document.getElementById("pub-stat-shelter");
+      if (incEl) incEl.textContent = stats.totalIncidents ?? "—";
+      if (zonesEl) zonesEl.textContent = stats.highRiskZones ?? "—";
+      if (respEl) respEl.textContent = stats.avgResponseMins != null ? stats.avgResponseMins + " min" : "—";
+      if (shelterEl) shelterEl.textContent = stats.shelterUtilisation != null ? stats.shelterUtilisation + "%" : "—";
+    }
+  } catch {
+    // silently fail — stats remain as dashes
+  }
 }
 
 function publicGuidanceFor(text) {
@@ -2099,6 +2170,17 @@ function loadStylesheet(href) {
 }
 
 async function renderFloodMap() {
+  try {
+    const resp = await fetch("/api/auth/session");
+    if (!resp.ok) {
+      window.location.hash = "#/login";
+      return;
+    }
+  } catch {
+    window.location.hash = "#/login";
+    return;
+  }
+
   app.innerHTML = `
     <div class="page flood-map-page">
       ${header({ backHref: "#/dashboard" })}
@@ -2840,8 +2922,13 @@ async function renderRiskPrediction() {
       ${header({ backHref: "#/dashboard" })}
       <main class="risk-shell">
         <section class="risk-title">
-          <p class="eyebrow">Risk Prediction</p>
-          <h1>Singapore Live Risk Map</h1>
+          <div class="risk-title-row">
+            <div>
+              <p class="eyebrow">Risk Prediction</p>
+              <h1>Singapore Live Risk Map</h1>
+            </div>
+            <a class="primary-button compact" href="#/flood-map" data-flood-map-link>${icon("mapPin")} View Live Flood Map</a>
+          </div>
         </section>
         <div class="risk-controls">
           <div class="risk-tabs" style="margin-bottom:8px">
@@ -3265,8 +3352,13 @@ async function renderAnalytics() {
       ${header({ backHref: "#/dashboard" })}
       <main class="analytics-shell">
         <section class="analytics-header">
-          <p class="eyebrow">Analytics & Insights</p>
-          <h1>Strategic Analytics &amp; Insights</h1>
+          <div class="analytics-title-row">
+            <div>
+              <p class="eyebrow">Analytics & Insights</p>
+              <h1>Strategic Analytics &amp; Insights</h1>
+            </div>
+            <a class="primary-button compact" href="#/flood-map" data-flood-map-link>${icon("mapPin")} View Live Flood Map</a>
+          </div>
         </section>
 
         <section class="analytics-summary">

@@ -550,8 +550,9 @@ p {
 .public-status-main {
   min-height: calc(100vh - 76px);
   display: grid;
-  align-items: center;
-  padding: clamp(42px, 5vw, 78px) clamp(24px, 4vw, 56px) 64px;
+  align-items: start;
+  align-content: start;
+  padding: clamp(42px, 5vw, 78px) 0 80px;
 }
 
 .public-status-hero {
@@ -561,6 +562,7 @@ p {
   align-items: center;
   width: min(100%, 1280px);
   margin: 0 auto;
+  padding: 0 clamp(24px, 4vw, 56px);
 }
 
 .public-status-copy {
@@ -2037,8 +2039,20 @@ p {
     flex: 1 1 0;
   }
 
-  .public-status-main {
+  .public-status-hero {
     padding-inline: 18px;
+  }
+
+  .public-features-section {
+    padding-inline: 18px;
+  }
+
+  .public-features-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .public-feature-actions {
+    flex-direction: column;
   }
 
   .public-status-hero h1 {
@@ -3210,4 +3224,70 @@ p {
   font-size: 0.85rem;
   color: var(--teal);
   min-height: 1.2em;
+}
+
+/* ── Public features section (risk prediction + analytics on public dashboard) ── */
+.public-features-section {
+  width: min(100%, 1280px);
+  margin: 56px auto 0;
+  padding: 0 clamp(24px, 4vw, 56px);
+}
+
+.public-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 24px;
+}
+
+.public-feature-card {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: clamp(24px, 3vw, 36px);
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(18, 19, 18, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.public-feature-card h2 {
+  font-size: clamp(22px, 2.2vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.public-feature-desc {
+  color: var(--muted);
+  font-size: clamp(14px, 1.1vw, 16px);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.public-feature-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.public-feature-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+}
+
+/* ── Title rows with inline flood map button ── */
+.risk-title-row,
+.analytics-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.risk-title-row h1,
+.analytics-title-row h1 {
+  margin-bottom: 0;
 }
