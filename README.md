@@ -243,3 +243,63 @@ npm run telegram:check
 
 This masks chat IDs, reports duplicate ownership, and shows whether Telegram
 currently has a webhook URL configured.
+
+Environment variables for Risk & Analytics (optional for demo):
+
+```
+ONEMAP_TOKEN=your_onemap_token
+RAIN_API_KEY=your_rainfall_api_key
+PSI_API_KEY=your_psi_api_key
+HOSPITAL_API_KEY=your_hospital_api_key
+```
+
+If these are not provided the app runs in mock mode using sample datasets in `backend/APIs/`.
+
+Importing incidents into MongoDB (MongoDB Compass)
+-----------------------------------------------
+
+1. Open MongoDB Compass and connect to your cluster using your `MONGO_URI`.
+2. Select the target database (the app uses `wad_dev` by default when using Atlas).
+3. Create or open the `incidents` collection.
+4. Use the Import Data button and choose `JSON`.
+5. Select `backend/APIs/FloodAlertsacrossSingapore.json` or `backend/data/compass-incidents.json` (if present) and import.
+
+If you already have a `compass-incidents.json` file from this repo, import it to the `incidents` collection.
+
+Running & verifying the Risk Prediction UI
+------------------------------------------
+
+1. Ensure dependencies are installed:
+
+```bash
+npm install
+```
+
+2. (Optional) Add `MONGO_URI` to a `.env` file in the project root to enable DB-backed reports.
+
+3. Start the app:
+
+```bash
+npm start
+```
+
+4. Open your browser to `http://127.0.0.1:3000` and navigate to `#/risk-prediction`.
+
+5. Switch between the `Live API` and `DB Reports` tabs. If `DB Reports` shows no markers, confirm your `incidents` collection contains documents.
+
+Quick verification commands
+---------------------------
+
+From the project root you can run a quick test script (already included):
+
+```bash
+npm test
+```
+
+This runs the prediction unit tests located at `backend/test/predictEngine.test.js`.
+
+If you'd like a local dev server with auto-restart, run:
+
+```bash
+npm run dev
+```

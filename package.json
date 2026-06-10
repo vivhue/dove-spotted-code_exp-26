@@ -8,6 +8,7 @@
     "dev": "nodemon backend/server.js",
     "db:check": "node backend/scripts/checkDb.js",
     "telegram:check": "node backend/scripts/checkTelegram.js",
+    "test": "node backend/test/predictEngine.test.js",
     "seed": "node backend/scripts/seedUsers.js",
     "telegram:webhook": "node backend/scripts/setTelegramWebhook.js"
   },

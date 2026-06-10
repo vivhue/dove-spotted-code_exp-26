@@ -47,6 +47,8 @@ const PROFESSIONAL_AGENCY_DOMAINS = {
   PUB: ["pub.gov.sg"],
   LTA: ["lta.gov.sg"]
 };
+const risk = require("./risk");
+const analytics = require("./analytics");
 
 async function cached(key, ttlMs, fetcher) {
   const hit = cache.get(key);
@@ -514,6 +516,57 @@ async function pollTelegramUpdates() {
 }
 
 async function handleApi(req, res) {
+  // Route /api/risk/* to backend/risk.js
+  if (req.url.startsWith("/api/risk")) {
+    try {
+      // DB backed endpoints should be checked before the generic handlers
+      if (req.method === "GET" && req.url.startsWith("/api/risk/heatmap-db")) {
+        await risk.handleHeatmapDb(req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url.startsWith("/api/risk/predict-db")) {
+        await risk.handlePredictDb(req, res);
+        return;
+      }
+      if (req.method === "GET" && req.url.startsWith("/api/risk/heatmap")) {
+        // default heatmap from upstream API / mock
+        await risk.handleHeatmap(req, res, cached);
+        return;
+      }
+      if (req.method === "POST" && req.url.startsWith("/api/risk/predict")) {
+        await risk.handlePredict(req, res);
+        return;
+      }
+    } catch (err) {
+      sendJson(res, 500, { error: "Risk service error." });
+      return;
+    }
+  }
+
+  // Route /api/analytics/* to backend/analytics.js
+  if (req.url.startsWith("/api/analytics")) {
+    try {
+      if (req.method === "GET" && req.url.startsWith("/api/analytics/summary")) {
+        analytics.summaryStats(req, res);
+        return;
+      }
+      if (req.method === "GET" && req.url.startsWith("/api/analytics/insights")) {
+        analytics.aiInsights(req, res);
+        return;
+      }
+      if (req.method === "GET" && req.url.startsWith("/api/analytics/trends")) {
+        analytics.aggregateTrends(req, res);
+        return;
+      }
+      if (req.method === "GET" && req.url.startsWith("/api/analytics/resources")) {
+        analytics.resourcesUsage(req, res);
+        return;
+      }
+    } catch (err) {
+      sendJson(res, 500, { error: "Analytics service error." });
+      return;
+    }
+  }
   if (req.method === "GET" && req.url === "/api/status") {
     sendJson(res, 200, { ...liveStatus, lastUpdated: new Date().toISOString() });
     return;
@@ -535,6 +588,35 @@ async function handleApi(req, res) {
       sendJson(res, 200, { geojson, fetchedAt: new Date().toISOString() });
     } catch (error) {
       sendJson(res, 502, { error: "Unable to reach the dengue clusters service." });
+    }
+    return;
+  }
+
+  // Accept incident reports (stored to MongoDB when connected)
+  if (req.method === 'POST' && req.url === '/api/incidents') {
+    try {
+      const body = await parseBody(req);
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: 'MongoDB not connected' });
+        return;
+      }
+      const Incident = require('./models/Incident');
+      const inc = new Incident({
+        reporter: body.reporter || 'anonymous',
+        reporterRole: body.reporterRole || 'public',
+        type: body.type || 'flood',
+        severity: body.severity || 'Low',
+        value: body.value || 20,
+        areaDesc: body.areaDesc || body.location || '',
+        location: body.location || '',
+        lat: body.lat,
+        lng: body.lng,
+        note: body.note || ''
+      });
+      await inc.save();
+      sendJson(res, 201, { incidentId: inc._id.toString(), message: 'Incident recorded' });
+    } catch (error) {
+      sendJson(res, 500, { error: 'Failed to record incident' });
     }
     return;
   }
@@ -1157,6 +1239,60 @@ async function handleApi(req, res) {
       }
       console.error("Volunteer signup failed:", error.message);
       sendJson(res, 500, { error: "Unable to create the account right now." });
+    }
+    return;
+  }
+
+  // --- Debug endpoints for local development ---
+  if (req.url.startsWith('/api/debug/incidents')) {
+    if (req.method === 'GET') {
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: 'MongoDB not connected' });
+        return;
+      }
+      try {
+        const Incident = require('./models/Incident');
+        const items = await Incident.find().sort({ createdAt: -1 }).limit(200).lean();
+        sendJson(res, 200, { count: items.length, incidents: items });
+      } catch (err) {
+        sendJson(res, 500, { error: 'Failed to read incidents' });
+      }
+      return;
+    }
+  }
+
+  if (req.method === 'POST' && req.url === '/api/debug/import') {
+    if (!mongoConnected) {
+      sendJson(res, 503, { error: 'MongoDB not connected' });
+      return;
+    }
+    try {
+      const fpath = path.join(__dirname, 'data', 'compass-incidents.json');
+      if (!fs.existsSync(fpath)) {
+        sendJson(res, 404, { error: 'Import file not found', path: fpath });
+        return;
+      }
+      const raw = fs.readFileSync(fpath, 'utf8');
+      const arr = JSON.parse(raw);
+      const Incident = require('./models/Incident');
+      const docs = arr.map((r) => ({
+        reporter: r.reporter || 'anonymous',
+        reporterRole: r.reporterRole || 'public',
+        type: r.type || 'report',
+        severity: r.severity || 'Low',
+        value: r.value || 20,
+        areaDesc: r.areaDesc || r.location || '',
+        location: r.location || r.areaDesc || '',
+        lat: r.lat,
+        lng: r.lng,
+        note: r.note || '',
+        status: r.status || 'open'
+      }));
+      const resInsert = await Incident.insertMany(docs, { ordered: false });
+      sendJson(res, 200, { inserted: Array.isArray(resInsert) ? resInsert.length : 0 });
+    } catch (err) {
+      console.error('Import failed:', err.message || err);
+      sendJson(res, 500, { error: 'Import failed', message: err.message });
     }
     return;
   }

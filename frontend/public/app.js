@@ -12,7 +12,9 @@ const routes = {
   "#/login/public": renderPublicLogin,
   "#/signup/volunteer": renderVolunteerSignup,
   "#/dashboard": renderDashboard,
-  "#/flood-map": renderFloodMap
+  "#/flood-map": renderFloodMap,
+  "#/risk-prediction": renderRiskPrediction,
+  "#/analytics": renderAnalytics
 };
 
 const capabilities = [
@@ -930,6 +932,7 @@ async function renderDashboard() {
             <span class="ops-live">${icon("activity")} Live</span>
             <span class="updated-pill">Last Updated : 5:00 PM</span>
             <a class="secondary-button compact" href="#/flood-map">${icon("alert")} Live Flood Map</a>
+            <a class="secondary-button compact" href="#/risk-prediction">${icon("activity")} Risk Prediction</a>
             <button class="secondary-button compact" data-signout>Sign Out</button>
           </div>
         </header>
@@ -1417,6 +1420,572 @@ async function renderFloodMap() {
   await Promise.all([refresh(), refreshDengue()]);
   floodMapTimer = window.setInterval(refresh, 60_000);
   dengueMapTimer = window.setInterval(refreshDengue, 5 * 60_000);
+}
+
+async function renderRiskPrediction() {
+  app.innerHTML = `
+    <div class="page risk-page">
+      ${header({ backHref: "#/dashboard" })}
+      <main class="risk-shell">
+        <section class="risk-title">
+          <p class="eyebrow">Risk Prediction</p>
+          <h1>Singapore Live Risk Map</h1>
+        </section>
+        <div class="risk-controls">
+          <div class="risk-tabs" style="margin-bottom:8px">
+            <button id="tab-api" class="secondary-button compact">Live API</button>
+            <button id="tab-db" class="secondary-button compact">DB Reports</button>
+            <button id="btn-report" class="secondary-button compact">Report Incident</button>
+          </div>
+          <div class="risk-filter-panel">
+            <input class="risk-filter-search" placeholder="Select Filters..." readonly aria-label="Filter selector hint" />
+            <div class="risk-checkbox-grid">
+              <fieldset class="risk-filter-group">
+                <legend>Risk Type</legend>
+                <label><input type="checkbox" name="riskType" value="Flood" checked /> Flood</label>
+                <label><input type="checkbox" name="riskType" value="Disease" /> Disease</label>
+                <label><input type="checkbox" name="riskType" value="Fire" /> Fire</label>
+              </fieldset>
+              <fieldset class="risk-filter-group">
+                <legend>Region</legend>
+                <label><input type="checkbox" name="region" value="Jurong" checked /> Jurong</label>
+                <label><input type="checkbox" name="region" value="Tampines" /> Tampines</label>
+                <label><input type="checkbox" name="region" value="Central" /> Central</label>
+              </fieldset>
+              <fieldset class="risk-filter-group">
+                <legend>Severity</legend>
+                <label><input type="checkbox" name="severity" value="Critical" /> Critical</label>
+                <label><input type="checkbox" name="severity" value="High" checked /> High</label>
+                <label><input type="checkbox" name="severity" value="Medium" /> Medium</label>
+              </fieldset>
+              <fieldset class="risk-filter-group">
+                <legend>Time Prediction</legend>
+                <label><input type="checkbox" name="window" value="1" /> Next 1 hour</label>
+                <label><input type="checkbox" name="window" value="6" checked /> Next 6 hours</label>
+                <label><input type="checkbox" name="window" value="24" /> Next 24 hours</label>
+              </fieldset>
+            </div>
+            <button id="filter-apply" class="secondary-button compact" style="margin-top:10px">Apply Filters</button>
+          </div>
+        </div>
+
+        <div class="risk-layout">
+          <div class="risk-map" id="risk-map" style="height:520px; background:#f4f4f4; display:flex;align-items:center;justify-content:center">Loading map…</div>
+          <aside class="risk-panel" id="risk-panel">
+            <h2 id="panel-title">AI Predictions</h2>
+            <div id="ai-prediction" class="ai-box">
+              <p class="muted">Select a zone on the map to see targeted predictions and recommended actions.</p>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  `;
+
+  // Load Leaflet and fetch heatmap
+  try {
+    await loadStylesheet("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+    await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
+
+    const map = L.map("risk-map").setView([1.3521, 103.8198], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(map);
+    const layer = L.layerGroup().addTo(map);
+
+    let currentSource = 'api'; // 'api' or 'db'
+
+    function selectEndpoint(source, kind) {
+      if (source === 'db') {
+        return kind === 'heatmap' ? '/api/risk/heatmap-db' : '/api/risk/predict-db';
+      }
+      return kind === 'heatmap' ? '/api/risk/heatmap' : '/api/risk/predict';
+    }
+
+    function getZoneIdentifier(feature) {
+      return (feature && feature.properties && (feature.properties.zoneId || feature.properties.zoneName)) || null;
+    }
+
+    function getZoneDisplayName(feature) {
+      if (!feature || !feature.properties) return '';
+      // Prefer a human friendly zone name or incident area description
+      if (currentSource === 'db') {
+        const inc = feature.properties.incident || {};
+        return feature.properties.zoneName || inc.areaDesc || inc.location || feature.properties.zoneId || '';
+      }
+      return feature.properties.zoneName || feature.properties.zoneId || '';
+    }
+
+    async function loadHeatmap(filters = {}, source = 'api') {
+      if (source === 'api') {
+        // Fetch upstream flood alerts via server proxy and convert to FeatureCollection
+        const resp = await fetch('/api/flood-alerts');
+        const payload = await resp.json();
+        const records = payload.records || payload.data?.records || [];
+        const features = records.map((rec, idx) => {
+          const zoneId = rec.datetime || `record-${idx}`;
+          const zoneName = rec.item?.type || `Alert ${idx + 1}`;
+          const description = rec.item?.description || rec.item?.type || `Upstream alert ${rec.datetime || ''}`;
+          return {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [103.7 + (idx % 10) * 0.01, 1.30 + Math.floor(idx / 10) * 0.01] },
+            properties: { zoneId, zoneName, description, severity: 'High', confidence: 0.5 }
+          };
+        });
+        return { type: 'FeatureCollection', features, fetchedAt: new Date().toISOString() };
+      }
+      const q = new URLSearchParams();
+      q.set('region', filters.region || 'all');
+      q.set('window', filters.window || '4');
+      const url = selectEndpoint(source, 'heatmap') + '?' + q.toString();
+      const resp = await fetch(url);
+      return resp.json();
+    }
+
+    const payload = await loadHeatmap({}, currentSource);
+    const features = payload.features || [];
+    // mark API tab as active by default
+    document.getElementById('tab-api').classList.add('active');
+    document.getElementById('tab-api').setAttribute('aria-pressed', 'true');
+
+    features.forEach((f) => {
+      const [lng, lat] = f.geometry.coordinates;
+      const color = f.properties.severity === 'Critical' ? '#a92525' : f.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+      const marker = L.circle([lat, lng], { radius: 400, color, fillColor: color, fillOpacity: 0.25 }).addTo(layer);
+      marker.on('click', async () => {
+        const displayName = getZoneDisplayName(f);
+        const zoneId = getZoneIdentifier(f);
+        const panel = document.getElementById('ai-prediction');
+          if (currentSource === 'db') {
+          const inc = f.properties.incident || {};
+          panel.innerHTML = `
+            <h3>${displayName}</h3>
+            <div class="incident-details">
+              <p><strong>Description:</strong> ${f.properties.description || inc.note || 'No description provided'}</p>
+              <p><strong>Reporter:</strong> ${inc.reporter || 'anonymous'} (${inc.reporterRole || 'public'})</p>
+              <p><strong>Type:</strong> ${inc.type || 'report'}</p>
+              <p><strong>Severity:</strong> ${inc.severity || f.properties.severity}</p>
+              <p><strong>Value:</strong> ${inc.value ?? '—'}</p>
+              <p><strong>Location:</strong> ${inc.location || inc.areaDesc || '—'}</p>
+              <p><strong>Status:</strong> ${inc.status || 'open'}</p>
+            </div>
+            <hr />
+            <div class="ai-section"><p>Loading AI prediction…</p></div>
+          `;
+
+          try {
+            const pResp = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zoneId, hours: 4 }) });
+            const p = await pResp.json();
+            const aiSection = panel.querySelector('.ai-section');
+            if (aiSection) {
+              aiSection.innerHTML = `
+                <h4>AI Predictions</h4>
+                <p><strong>Severity:</strong> ${p.severity} · <strong>Confidence:</strong> ${Math.round((p.confidence||0)*100)}%</p>
+                <p><strong>Time to impact:</strong> ${p.timeToImpact}</p>
+                <h5>Recommendations</h5>
+                <ul>${(p.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+                <h5>Why</h5>
+                <p class="ai-explanation">${p.explanation || ''}</p>
+              `;
+            }
+          } catch (e) {
+            const aiSection = panel.querySelector('.ai-section');
+            if (aiSection) aiSection.textContent = 'Prediction failed.';
+          }
+        } else {
+          panel.innerHTML = `<p>Loading prediction for <strong>${displayName}</strong>…</p>`;
+          try {
+            const predictUrl = selectEndpoint(currentSource, 'predict');
+            const pResp = await fetch(predictUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: displayName, hours: 4 }) });
+            const p = await pResp.json();
+            panel.innerHTML = `
+              <h3>${displayName}</h3>
+              <p><strong>Severity:</strong> ${p.severity} · <strong>Confidence:</strong> ${Math.round((p.confidence||0)*100)}%</p>
+              <p><strong>Time to impact:</strong> ${p.timeToImpact}</p>
+              <h4>Expected Impact</h4>
+              <ul class="ai-impact-list">
+                <li>Road congestion</li>
+                <li>Shelter demand increase</li>
+                <li>Hospital occupancy strain</li>
+              </ul>
+              <h4>Recommendations</h4>
+              <ul>${(p.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+              <h5>Why</h5>
+              <p class="ai-explanation">${p.explanation || ''}</p>
+            `;
+          } catch (e) {
+            panel.textContent = 'Prediction failed.';
+          }
+        }
+      });
+    });
+    // Wire filter controls
+    // Report incident button -> show simple form in the right panel
+    document.getElementById('btn-report').addEventListener('click', () => {
+      const panel = document.getElementById('ai-prediction');
+      panel.innerHTML = `
+        <h3>Report Incident</h3>
+        <form id="report-form">
+          <label>Type<input name="type" value="flood" required /></label>
+          <label>Severity<select name="severity"><option>High</option><option>Medium</option><option>Low</option></select></label>
+          <label>Area description<input name="areaDesc" placeholder="Area description" required /></label>
+          <label>Location<input name="location" placeholder="Location (optional)" /></label>
+          <label>Latitude<input name="lat" type="number" step="0.0001" /></label>
+          <label>Longitude<input name="lng" type="number" step="0.0001" /></label>
+          <label>Note<textarea name="note" rows="3" /></label>
+          <div style="margin-top:8px"><button type="submit" class="form-button">Submit Report</button></div>
+        </form>
+        <p class="form-status" role="status"></p>
+      `;
+
+      const form = document.getElementById('report-form');
+      const status = panel.querySelector('.form-status');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        status.textContent = 'Submitting...';
+        try {
+          const data = Object.fromEntries(new FormData(form).entries());
+          // Convert lat/lng and value if present
+          if (data.lat) data.lat = Number(data.lat);
+          if (data.lng) data.lng = Number(data.lng);
+          const resp = await fetch('/api/incidents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+          const result = await resp.json();
+          if (!resp.ok) throw new Error(result.error || 'Failed');
+          status.textContent = 'Report submitted';
+          // If DB tab is active, refresh markers
+          if (currentSource === 'db') {
+            const newPayload = await loadHeatmap({ region: 'all' }, currentSource);
+            layer.clearLayers();
+            (newPayload.features || []).forEach((ff) => {
+              const [lng2, lat2] = ff.geometry.coordinates;
+              const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+              const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+            });
+          }
+        } catch (err) {
+          status.textContent = err.message || 'Submission failed';
+        }
+      });
+    });
+    // Tab controls
+    document.getElementById('tab-api').addEventListener('click', async () => {
+      currentSource = 'api';
+      // Show AI panel title for Live API
+      const titleEl = document.getElementById('panel-title');
+      if (titleEl) { titleEl.style.display = ''; titleEl.textContent = 'AI Predictions'; }
+      document.getElementById('tab-api').classList.add('active');
+      document.getElementById('tab-db').classList.remove('active');
+      const newPayload = await loadHeatmap({ region: 'all' }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const displayName = getZoneDisplayName(ff);
+          const panel = document.getElementById('ai-prediction');
+          panel.innerHTML = `<p>Loading prediction for <strong>${displayName}</strong>…</p>`;
+          try {
+            const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: displayName, hours: 4 }) });
+            const p2 = await pResp2.json();
+            panel.innerHTML = `
+              <h3>${displayName}</h3>
+              <p><strong>Description:</strong> ${ff.properties.description || ''}</p>
+              <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+              <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+              <h4>Expected Impact</h4>
+              <ul class="ai-impact-list">
+                <li>Road congestion</li>
+                <li>Shelter demand increase</li>
+                <li>Hospital occupancy strain</li>
+              </ul>
+              <h4>Recommendations</h4>
+              <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+              <h5>Why</h5>
+              <p class="ai-explanation">${p2.explanation || ''}</p>
+            `;
+          } catch (e) {
+            panel.textContent = 'Prediction failed.';
+          }
+        });
+      });
+    });
+
+    document.getElementById('tab-db').addEventListener('click', async () => {
+      currentSource = 'db';
+      // Hide the global AI header when showing DB incident details
+      const titleEl = document.getElementById('panel-title');
+      if (titleEl) { titleEl.style.display = 'none'; }
+      document.getElementById('tab-db').classList.add('active');
+      document.getElementById('tab-api').classList.remove('active');
+      const newPayload = await loadHeatmap({ region: 'all' }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const displayName = getZoneDisplayName(ff);
+          const zoneId = getZoneIdentifier(ff);
+          const panel = document.getElementById('ai-prediction');
+          const inc = ff.properties.incident || {};
+          panel.innerHTML = `
+            <h3>${displayName}</h3>
+            <div class="incident-details">
+              <p><strong>Reporter:</strong> ${inc.reporter || 'anonymous'} (${inc.reporterRole || 'public'})</p>
+              <p><strong>Type:</strong> ${inc.type || 'report'}</p>
+              <p><strong>Severity:</strong> ${inc.severity || ff.properties.severity}</p>
+              <p><strong>Value:</strong> ${inc.value ?? '—'}</p>
+              <p><strong>Location:</strong> ${inc.location || inc.areaDesc || '—'}</p>
+              ${inc.note ? `<p><strong>Note:</strong> ${inc.note}</p>` : ''}
+              <p><strong>Status:</strong> ${inc.status || 'open'}</p>
+            </div>
+            <hr />
+            <div class="ai-section"><p>Loading AI prediction…</p></div>
+          `;
+          try {
+            const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zoneId, hours: 4 }) });
+            const p2 = await pResp2.json();
+            const aiSection = panel.querySelector('.ai-section');
+            if (aiSection) {
+              aiSection.innerHTML = `
+                <h4>AI Predictions</h4>
+                <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+                <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+                <h5>Recommendations</h5>
+                <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+              `;
+            }
+          } catch (e) {
+            const aiSection = panel.querySelector('.ai-section');
+            if (aiSection) aiSection.textContent = 'Prediction failed.';
+          }
+        });
+      });
+    });
+
+    // Apply filter button
+    document.getElementById('filter-apply').addEventListener('click', async () => {
+      const region = [...document.querySelectorAll('input[name="region"]:checked')].map(cb => cb.value)[0] || 'all';
+      const wnd = [...document.querySelectorAll('input[name="window"]:checked')].map(cb => cb.value)[0] || '4';
+      const sev = [...document.querySelectorAll('input[name="severity"]:checked')].map(cb => cb.value)[0] || 'all';
+      const newPayload = await loadHeatmap({ region, window: wnd }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const panel = document.getElementById('ai-prediction');
+          if (currentSource === 'db') {
+            const displayName = getZoneDisplayName(ff);
+            const zoneId = getZoneIdentifier(ff);
+            const inc = ff.properties.incident || {};
+            panel.innerHTML = `
+              <h3>${displayName}</h3>
+              <div class="incident-details">
+                <p><strong>Reporter:</strong> ${inc.reporter || 'anonymous'} (${inc.reporterRole || 'public'})</p>
+                <p><strong>Type:</strong> ${inc.type || 'report'}</p>
+                <p><strong>Severity:</strong> ${inc.severity || ff.properties.severity}</p>
+                <p><strong>Value:</strong> ${inc.value ?? '—'}</p>
+                <p><strong>Location:</strong> ${inc.location || inc.areaDesc || '—'}</p>
+                ${inc.note ? `<p><strong>Note:</strong> ${inc.note}</p>` : ''}
+                <p><strong>Status:</strong> ${inc.status || 'open'}</p>
+              </div>
+              <hr />
+              <div class="ai-section"><p>Loading AI prediction…</p></div>
+            `;
+            try {
+              const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zoneId, hours: wnd }) });
+              const p2 = await pResp2.json();
+              const aiSection = panel.querySelector('.ai-section');
+              if (aiSection) {
+                aiSection.innerHTML = `
+                  <h4>AI Predictions</h4>
+                  <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+                  <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+                  <h5>Recommendations</h5>
+                  <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+                  <h5>Why</h5>
+                  <p class="ai-explanation">${p2.explanation || ''}</p>
+                `;
+              }
+            } catch (e) {
+              const aiSection = panel.querySelector('.ai-section');
+              if (aiSection) aiSection.textContent = 'Prediction failed.';
+            }
+          } else {
+            const displayName = getZoneDisplayName(ff);
+            panel.innerHTML = `<p>Loading prediction for <strong>${displayName}</strong>…</p>`;
+            try {
+              const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: displayName, hours: wnd }) });
+              const p2 = await pResp2.json();
+              panel.innerHTML = `
+                <h3>${displayName}</h3>
+                <p><strong>Description:</strong> ${ff.properties.description || ''}</p>
+                <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+                <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+                <h4>Expected Impact</h4>
+                <ul class="ai-impact-list">
+                  <li>Road congestion</li>
+                  <li>Shelter demand increase</li>
+                  <li>Hospital occupancy strain</li>
+                </ul>
+                <h4>Recommendations</h4>
+                <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+                <h5>Why</h5>
+                <p class="ai-explanation">${p2.explanation || ''}</p>
+              `;
+            } catch (e) {
+              panel.textContent = 'Prediction failed.';
+            }
+          }
+        });
+      });
+    });
+  } catch (error) {
+    const el = document.getElementById('risk-map');
+    if (el) el.innerHTML = '<span>Unable to load map.</span>';
+  }
+}
+
+async function renderAnalytics() {
+  app.innerHTML = `
+    <div class="page analytics-page">
+      ${header({ backHref: "#/dashboard" })}
+      <main class="analytics-shell">
+        <section class="analytics-header">
+          <p class="eyebrow">Analytics & Insights</p>
+          <h1>Strategic Analytics &amp; Insights</h1>
+        </section>
+
+        <section class="analytics-summary">
+          <div class="analytics-summary-grid">
+            <article class="metric-card">
+              <span>Total Incidents</span>
+              <strong id="stat-incidents">—</strong>
+            </article>
+            <article class="metric-card">
+              <span>Avg. Response Time</span>
+              <strong id="stat-response">—</strong>
+            </article>
+            <article class="metric-card">
+              <span>High Risk Zones</span>
+              <strong id="stat-zones">—</strong>
+            </article>
+            <article class="metric-card">
+              <span>Shelter Utilisation</span>
+              <strong id="stat-shelter">—</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="analytics-charts">
+          <div class="analytics-charts-grid">
+            <div class="analytics-chart-card">
+              <p>Flood Incidents</p>
+              <canvas id="chart-flood" height="180"></canvas>
+            </div>
+            <div class="analytics-chart-card">
+              <p>Fire Incidents</p>
+              <canvas id="chart-fire" height="180"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <section class="analytics-shelters">
+          <div class="analytics-section-head">
+            <h2>Shelter Utilisation</h2>
+            <p class="muted">Generated 5 mins ago</p>
+          </div>
+          <div class="analytics-shelter-grid">
+            <article class="analytics-shelter-card"><span>NUHS</span><strong>90%</strong></article>
+            <article class="analytics-shelter-card"><span>NHG</span><strong>82%</strong></article>
+            <article class="analytics-shelter-card"><span>SH</span><strong>90%</strong></article>
+            <article class="analytics-shelter-card"><span>Schools</span><strong>90%</strong></article>
+            <article class="analytics-shelter-card"><span>Facilities</span><strong>90%</strong></article>
+            <article class="analytics-shelter-card"><span>Others</span><strong>90%</strong></article>
+          </div>
+        </section>
+
+        <section class="analytics-insights">
+          <h2>AI Strategic Insights Panel</h2>
+          <div id="insights-grid" class="analytics-insights-grid"></div>
+        </section>
+      </main>
+    </div>
+  `;
+
+  try {
+    await loadScript('https://cdn.jsdelivr.net/npm/chart.js');
+
+    const [sResp, tResp, iResp] = await Promise.all([
+      fetch('/api/analytics/summary'),
+      fetch('/api/analytics/trends'),
+      fetch('/api/analytics/insights')
+    ]);
+
+    const stats = await sResp.json();
+    document.getElementById('stat-incidents').textContent = stats.totalIncidents;
+    document.getElementById('stat-response').textContent = stats.avgResponseMins + ' mins';
+    document.getElementById('stat-zones').textContent = stats.highRiskZones;
+    document.getElementById('stat-shelter').textContent = stats.shelterUtilisation + '%';
+
+    const tPayload = await tResp.json();
+    const labels = (tPayload.series || []).map(s => s.date);
+    const floodData = (tPayload.series || []).map(s => s.count);
+    new Chart(document.getElementById('chart-flood').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Flood Incidents',
+          data: floodData,
+          borderColor: '#0f766e',
+          backgroundColor: 'rgba(15,118,110,0.08)',
+          tension: 0.3,
+          fill: true
+        }]
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+
+    const fireData = labels.map((_, i) => Math.max(0, Math.round(2 + Math.sin(i * 0.8) * 2)));
+    new Chart(document.getElementById('chart-fire').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Fire Incidents',
+          data: fireData,
+          borderColor: '#c53d32',
+          backgroundColor: 'rgba(197,61,50,0.08)',
+          tension: 0.3,
+          fill: true
+        }]
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+
+    const iPayload = await iResp.json();
+    const grid = document.getElementById('insights-grid');
+    grid.innerHTML = (iPayload.insights || []).map(ins => {
+      const lvl = ins.riskLevel;
+      const riskClass = lvl === 'CRITICAL' ? 'risk-critical' : lvl === 'HIGH' ? 'risk-high' : 'risk-medium';
+      return `
+        <article class="analytics-insight-card ${riskClass}">
+          <div class="analytics-insight-header">
+            <h3>${ins.title}</h3>
+            <span class="analytics-risk-badge analytics-risk-badge--${lvl.toLowerCase()}">${lvl}</span>
+          </div>
+          <h4 class="eyebrow" style="margin-top:12px">AI Recommendations</h4>
+          <ul>${ins.recommendations.map(r => `<li>${r}</li>`).join('')}</ul>
+        </article>
+      `;
+    }).join('');
+
+  } catch (error) {
+    const el = document.querySelector('.analytics-shell');
+    if (el) el.insertAdjacentHTML('beforeend', '<p class="muted">Unable to load analytics data.</p>');
+  }
 }
 
 function renderRoute() {
