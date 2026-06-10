@@ -35,6 +35,8 @@ const ONEMAP_TOKEN = process.env.ONEMAP_TOKEN || "";
 
 const FLOOD_ALERTS_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather/flood-alerts";
 const ONEMAP_REVGEOCODE_URL = "https://www.onemap.gov.sg/api/public/revgeocode";
+const DENGUE_CLUSTERS_DATASET_ID = "d_dbfabf16158d1b0e1c420627c0819168";
+const DENGUE_CLUSTERS_POLL_URL = `https://api-open.data.gov.sg/v1/public/api/datasets/${DENGUE_CLUSTERS_DATASET_ID}/poll-download`;
 
 const cache = new Map();
 const PROFESSIONAL_AGENCY_DOMAINS = {
@@ -59,6 +61,18 @@ async function fetchFloodAlerts() {
   if (!response.ok) throw new Error(`Flood alert upstream error: ${response.status}`);
   const payload = await response.json();
   return payload.data?.records || [];
+}
+
+async function fetchDengueClusters() {
+  const pollResponse = await fetch(DENGUE_CLUSTERS_POLL_URL);
+  if (!pollResponse.ok) throw new Error(`Dengue dataset poll error: ${pollResponse.status}`);
+  const pollPayload = await pollResponse.json();
+  const downloadUrl = pollPayload.data?.url;
+  if (!downloadUrl) throw new Error("Dengue dataset download URL missing");
+
+  const geoResponse = await fetch(downloadUrl);
+  if (!geoResponse.ok) throw new Error(`Dengue dataset download error: ${geoResponse.status}`);
+  return geoResponse.json();
 }
 
 async function fetchNearestAddress(lat, lng) {
@@ -975,6 +989,16 @@ async function handleApi(req, res) {
       sendJson(res, 200, { records, fetchedAt: new Date().toISOString() });
     } catch (error) {
       sendJson(res, 502, { error: "Unable to reach the flood alert service." });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && req.url.startsWith("/api/dengue-clusters")) {
+    try {
+      const geojson = await cached("dengue-clusters", 30 * 60_000, fetchDengueClusters);
+      sendJson(res, 200, { geojson, fetchedAt: new Date().toISOString() });
+    } catch (error) {
+      sendJson(res, 502, { error: "Unable to reach the dengue clusters service." });
     }
     return;
   }

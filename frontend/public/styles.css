@@ -1942,7 +1942,8 @@ p {
   width: 100%;
 }
 
-.flood-severity-legend {
+.flood-severity-legend,
+.dengue-severity-legend {
   position: absolute;
   z-index: 500;
   bottom: 16px;
@@ -1960,17 +1961,48 @@ p {
   font-weight: 700;
 }
 
-.flood-severity-legend li {
+.dengue-severity-legend {
+  left: auto;
+  right: 16px;
+}
+
+.flood-severity-legend li,
+.dengue-severity-legend li {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.flood-severity-legend i {
+.flood-severity-legend i,
+.dengue-severity-legend i {
   display: inline-block;
   width: 12px;
   height: 12px;
   border-radius: 999px;
+}
+
+.map-layer-toggle {
+  position: absolute;
+  z-index: 500;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(18, 19, 18, 0.12);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.map-layer-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 
 .flood-alert-rail {
@@ -1986,6 +2018,10 @@ p {
 .flood-alert-rail h2 {
   margin-top: 0;
   font-size: 20px;
+}
+
+.flood-alert-rail h2 + .flood-alert-list {
+  margin-bottom: 24px;
 }
 
 .flood-alert-list {
