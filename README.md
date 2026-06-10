@@ -303,3 +303,38 @@ If you'd like a local dev server with auto-restart, run:
 ```bash
 npm run dev
 ```
+
+Dynamic Evacuation Routing
+---------------------------
+
+Plan a driving route across Singapore that avoids roads currently affected by
+live flood alerts and traffic incidents. Open `#/evacuation-routing` from the
+dashboard, click the map once to set a start point and again to set a
+destination, then press `Calculate Route`. The map shows the normal route
+(blue) and a re-routed path (red dashed) that avoids buffered "blockage"
+zones (teal/red shading) built from live flood alerts and traffic incidents.
+Blockages and the route are refreshed automatically every 2 minutes.
+
+Required environment variables (add to `.env` in the project root):
+
+```
+ORS_API_KEY=your_openrouteservice_api_key
+LTA_ACCOUNT_KEY=your_lta_datamall_account_key
+EVAC_BLOCKAGE_BUFFER_M=600
+```
+
+- `ORS_API_KEY` — openrouteservice API key, used for the Directions API.
+- `LTA_ACCOUNT_KEY` — LTA DataMall account key, used for live traffic incidents.
+  If unset, traffic incidents are skipped and only flood alerts are used as
+  blockages.
+- `EVAC_BLOCKAGE_BUFFER_M` — radius (in metres) used to turn each blockage point
+  into an "avoid" polygon for routing. Defaults to `600`.
+
+Demo mode:
+
+- Tick the `Demo mode` checkbox on the routing page to use fixed sample
+  blockages and a precomputed sample route from `backend/data/evacuation-demo.json`,
+  without calling any external APIs.
+- The backend also automatically falls back to this demo data if `ORS_API_KEY`
+  is missing, the openrouteservice request fails, or no live blockage data is
+  available — so a live demo keeps working even if an upstream API is slow or down.

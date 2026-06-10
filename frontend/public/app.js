@@ -13,6 +13,7 @@ const routes = {
   "#/signup/volunteer": renderVolunteerSignup,
   "#/dashboard": renderDashboard,
   "#/flood-map": renderFloodMap,
+  "#/evacuation-routing": renderEvacuationRouting,
   "#/risk-prediction": renderRiskPrediction,
   "#/analytics": renderAnalytics
 };
@@ -1029,6 +1030,7 @@ async function renderDashboard() {
             <span class="ops-live">${icon("activity")} Live</span>
             <span class="updated-pill">Last Updated : 5:00 PM</span>
             <a class="secondary-button compact" href="#/flood-map">${icon("alert")} Live Flood Map</a>
+            <a class="secondary-button compact" href="#/evacuation-routing">${icon("arrowRight")} Evacuation Routing</a>
             <a class="secondary-button compact" href="#/risk-prediction">${icon("activity")} Risk Prediction</a>
             ${dashboardSimulationAction()}
             ${dashboardEmergencySpacesAction()}
@@ -1990,6 +1992,7 @@ const DENGUE_BUCKETS = [
 
 let floodMapTimer = null;
 let dengueMapTimer = null;
+let evacuationMapTimer = null;
 
 function severityColor(severity) {
   return SEVERITY_COLORS[severity] || "#5e655f";
@@ -2092,6 +2095,10 @@ function dengueListItem({ caseSize, locality }, index) {
 
 function ringToLatLngs(ring) {
   return ring.map(([lng, lat]) => [lat, lng]);
+}
+
+function lineStringToLatLngs(coordinates) {
+  return coordinates.map(([lng, lat]) => [lat, lng]);
 }
 
 function geoJsonFeatureToLayer(feature, options) {
@@ -2365,6 +2372,258 @@ async function renderFloodMap() {
   await Promise.all([refresh(), refreshDengue()]);
   floodMapTimer = window.setInterval(refresh, 60_000);
   dengueMapTimer = window.setInterval(refreshDengue, 5 * 60_000);
+}
+
+const EVACUATION_POLL_MS = 2 * 60_000;
+
+function blockageColor(type) {
+  return type === "flood" ? "#0f766e" : "#c53d32";
+}
+
+function blockagePopup({ type, label }) {
+  return `
+    <div class="flood-popup">
+      <span class="severity-pill" style="background:${blockageColor(type)}">${type === "flood" ? "Flood" : "Traffic Incident"}</span>
+      <p>${label || "Blocked area"}</p>
+    </div>
+  `;
+}
+
+function evacuationRouteSummary({ baseline, rerouted, demo }) {
+  const baseSummary = baseline?.features?.[0]?.properties?.summary;
+  const reroutedSummary = rerouted?.features?.[0]?.properties?.summary;
+  if (!baseSummary || !reroutedSummary) return "";
+
+  const fmt = (summary) =>
+    `${(summary.distance / 1000).toFixed(1)} km · ${Math.round(summary.duration / 60)} min`;
+
+  return `
+    <article class="flood-alert-card evac-summary-card">
+      <div>
+        <strong>Normal route</strong>
+        <p>${fmt(baseSummary)}</p>
+      </div>
+    </article>
+    <article class="flood-alert-card evac-summary-card">
+      <div>
+        <strong>Re-routed (avoiding blockages)</strong>
+        <p>${fmt(reroutedSummary)}</p>
+      </div>
+    </article>
+    ${demo ? `<p class="map-empty">Showing demo route data.</p>` : ""}
+  `;
+}
+
+async function renderEvacuationRouting() {
+  app.innerHTML = `
+    <div class="page flood-map-page">
+      ${header({ backHref: "#/dashboard" })}
+      <main class="flood-map-shell">
+        <section class="dashboard-title">
+          <div>
+            <p class="eyebrow">OneMap basemap · openrouteservice · live traffic & flood blockages</p>
+            <h1>Dynamic Evacuation Routing</h1>
+          </div>
+          <p class="map-updated" data-evac-updated>Click the map to set a start point, then a destination.</p>
+        </section>
+        <div class="flood-map-layout">
+          <div class="flood-map-canvas">
+            <div id="evacuation-map" aria-label="Map for planning an evacuation route around current blockages"></div>
+            <div class="map-layer-toggle evac-controls" aria-label="Routing controls">
+              <label><input type="checkbox" data-evac-demo /> Demo mode</label>
+              <button type="button" class="secondary-button compact" data-evac-calculate>Calculate Route</button>
+              <button type="button" class="secondary-button compact" data-evac-clear>Clear</button>
+            </div>
+            <ul class="dengue-severity-legend evac-legend" aria-label="Evacuation route legend">
+              <li><i style="background:#1d4ed8"></i>Normal route</li>
+              <li><i style="background:#c53d32"></i>Re-routed</li>
+              <li><i style="background:#0f766e"></i>Blocked area</li>
+            </ul>
+          </div>
+          <aside class="flood-alert-rail" aria-label="Route summary and blockages">
+            <h2>Route Summary</h2>
+            <div class="flood-alert-list" data-evac-summary><p class="map-empty">Set a start and destination on the map, then press Calculate Route.</p></div>
+            <h2>Active Blockages</h2>
+            <div class="flood-alert-list" data-evac-blockages><p class="map-empty">Loading…</p></div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  `;
+
+  const map = L.map("evacuation-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
+  L.tileLayer("https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png", {
+    detectRetina: true,
+    maxZoom: 19,
+    minZoom: 11,
+    attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
+  }).addTo(map);
+
+  const blockageLayer = L.layerGroup().addTo(map);
+  const routeLayer = L.layerGroup().addTo(map);
+  const markerLayer = L.layerGroup().addTo(map);
+
+  const evac = {
+    start: null,
+    end: null,
+    blockages: null
+  };
+
+  const updatedLabel = document.querySelector("[data-evac-updated]");
+  const summaryEl = document.querySelector("[data-evac-summary]");
+  const blockagesEl = document.querySelector("[data-evac-blockages]");
+  const demoToggle = document.querySelector("[data-evac-demo]");
+
+  function placeMarker(latlng, kind) {
+    const color = kind === "start" ? "#0f766e" : "#c53d32";
+    const marker = L.circleMarker(latlng, {
+      radius: 9,
+      color,
+      weight: 2,
+      fillColor: color,
+      fillOpacity: 0.85
+    })
+      .bindPopup(kind === "start" ? "Start" : "Destination")
+      .addTo(markerLayer);
+    return marker;
+  }
+
+  map.on("click", (event) => {
+    if (!evac.start || (evac.start && evac.end)) {
+      markerLayer.clearLayers();
+      routeLayer.clearLayers();
+      summaryEl.innerHTML = `<p class="map-empty">Set a start and destination on the map, then press Calculate Route.</p>`;
+      evac.start = { lat: event.latlng.lat, lng: event.latlng.lng };
+      evac.end = null;
+      placeMarker(event.latlng, "start");
+      updatedLabel.textContent = "Start point set. Click the map again to set a destination.";
+      return;
+    }
+
+    evac.end = { lat: event.latlng.lat, lng: event.latlng.lng };
+    placeMarker(event.latlng, "end");
+    updatedLabel.textContent = "Start and destination set. Press Calculate Route.";
+  });
+
+  document.querySelector("[data-evac-clear]").addEventListener("click", () => {
+    evac.start = null;
+    evac.end = null;
+    markerLayer.clearLayers();
+    routeLayer.clearLayers();
+    summaryEl.innerHTML = `<p class="map-empty">Set a start and destination on the map, then press Calculate Route.</p>`;
+    updatedLabel.textContent = "Click the map to set a start point, then a destination.";
+  });
+
+  async function refreshBlockages() {
+    try {
+      const demo = demoToggle.checked;
+      const response = await fetch(`/api/evacuation/blockages?demo=${demo}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to load blockage data.");
+
+      evac.blockages = payload;
+      blockageLayer.clearLayers();
+      (payload.points || []).forEach((point) => {
+        L.circle([point.lat, point.lng], {
+          radius: 250,
+          color: blockageColor(point.type),
+          weight: 1.5,
+          fillColor: blockageColor(point.type),
+          fillOpacity: 0.25
+        })
+          .bindPopup(blockagePopup(point))
+          .addTo(blockageLayer);
+      });
+
+      blockagesEl.innerHTML = payload.points?.length
+        ? payload.points
+            .map(
+              (point) => `
+                <article class="flood-alert-card">
+                  <span class="severity-pill" style="background:${blockageColor(point.type)}">${point.type === "flood" ? "Flood" : "Incident"}</span>
+                  <div>
+                    <strong>${point.type === "flood" ? "Flood alert" : "Traffic incident"}</strong>
+                    <p>${point.label || ""}</p>
+                  </div>
+                </article>
+              `
+            )
+            .join("")
+        : `<p class="map-empty">No active blockages reported right now.</p>`;
+    } catch (error) {
+      blockagesEl.innerHTML = `<p class="map-empty error">${error.message}</p>`;
+    }
+  }
+
+  async function calculateRoute() {
+    if (!evac.start || !evac.end) {
+      updatedLabel.textContent = "Set a start and destination on the map first.";
+      return;
+    }
+
+    summaryEl.innerHTML = `<p class="map-empty">Calculating route…</p>`;
+
+    try {
+      const response = await fetch("/api/evacuation/route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start: evac.start, end: evac.end, demo: demoToggle.checked })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to compute a route.");
+
+      evac.blockages = payload.blockages;
+      routeLayer.clearLayers();
+
+      const baselineCoords = payload.baseline?.features?.[0]?.geometry?.coordinates;
+      const reroutedCoords = payload.rerouted?.features?.[0]?.geometry?.coordinates;
+
+      let bounds = null;
+      if (baselineCoords) {
+        const latlngs = lineStringToLatLngs(baselineCoords);
+        const line = L.polyline(latlngs, { color: "#1d4ed8", weight: 5, opacity: 0.85 }).addTo(routeLayer);
+        bounds = line.getBounds();
+      }
+      if (reroutedCoords) {
+        const latlngs = lineStringToLatLngs(reroutedCoords);
+        const line = L.polyline(latlngs, {
+          color: "#c53d32",
+          weight: 4,
+          opacity: 0.9,
+          dashArray: "8 8"
+        }).addTo(routeLayer);
+        bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
+      }
+
+      if (bounds && bounds.isValid()) {
+        if (typeof map.flyToBounds === "function") {
+          map.flyToBounds(bounds, { duration: 0.6, padding: [40, 40] });
+        } else {
+          map.fitBounds(bounds, { padding: [40, 40] });
+        }
+      }
+
+      summaryEl.innerHTML =
+        evacuationRouteSummary(payload) ||
+        `<p class="map-empty">Route computed${payload.demo ? " (demo data)" : ""}.</p>`;
+
+      updatedLabel.textContent = `Last updated ${formatDateTime(payload.fetchedAt)}${payload.demo ? " · demo data" : ""}`;
+    } catch (error) {
+      summaryEl.innerHTML = `<p class="map-empty error">${error.message}</p>`;
+    }
+  }
+
+  document.querySelector("[data-evac-calculate]").addEventListener("click", calculateRoute);
+  demoToggle.addEventListener("change", () => {
+    refreshBlockages();
+    if (evac.start && evac.end) calculateRoute();
+  });
+
+  await refreshBlockages();
+  evacuationMapTimer = window.setInterval(async () => {
+    await refreshBlockages();
+    if (evac.start && evac.end) await calculateRoute();
+  }, EVACUATION_POLL_MS);
 }
 
 async function renderRiskPrediction() {
@@ -2941,6 +3200,10 @@ function renderRoute() {
   if (dengueMapTimer) {
     window.clearInterval(dengueMapTimer);
     dengueMapTimer = null;
+  }
+  if (evacuationMapTimer) {
+    window.clearInterval(evacuationMapTimer);
+    evacuationMapTimer = null;
   }
   const renderer = routes[window.location.hash] || renderLanding;
   renderer();
