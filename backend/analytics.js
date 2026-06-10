@@ -72,12 +72,12 @@ function aiInsights(req, res) {
       ]
     },
     {
-      title: 'Fire Response Delays',
-      riskLevel: 'MEDIUM',
+      title: 'Dengue Cluster Surge',
+      riskLevel: 'HIGH',
       recommendations: [
-        'Re-route emergency vehicles',
-        'Increase responder standby hours',
-        'Improve dispatch coordination'
+        'Deploy additional vector control teams',
+        'Issue community advisories for affected zones',
+        'Increase NEA inspection frequency'
       ]
     },
     {

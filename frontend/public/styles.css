@@ -2211,6 +2211,10 @@ p {
   gap: 16px;
 }
 
+.analytics-summary-grid .metric-card {
+  text-align: center;
+}
+
 /* Section B – Chart pair */
 .analytics-charts {
   margin-bottom: 36px;
@@ -2289,6 +2293,10 @@ p {
   font-weight: 900;
   line-height: 1;
   color: var(--teal);
+}
+
+.analytics-shelter-card strong.high-occupancy {
+  color: var(--red);
 }
 
 /* Section D – AI Strategic Insights */
@@ -2726,4 +2734,55 @@ p {
   .dispatch-public-layout {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Report Incident form ── */
+.report-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.report-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.report-form input,
+.report-form select,
+.report-form textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.93rem;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  width: 100%;
+}
+
+.report-form input:focus,
+.report-form select:focus,
+.report-form textarea:focus {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 2px rgba(15,118,110,0.15);
+}
+
+.report-form textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.form-status {
+  font-size: 0.85rem;
+  color: var(--teal);
+  min-height: 1.2em;
 }
