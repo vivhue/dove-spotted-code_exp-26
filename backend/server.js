@@ -28,6 +28,7 @@ const ONEMAP_TOKEN = process.env.ONEMAP_TOKEN || "";
 
 const FLOOD_ALERTS_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather/flood-alerts";
 const ONEMAP_REVGEOCODE_URL = "https://www.onemap.gov.sg/api/public/revgeocode";
+const ONEMAP_SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search";
 const DENGUE_CLUSTERS_DATASET_ID = "d_dbfabf16158d1b0e1c420627c0819168";
 const DENGUE_CLUSTERS_POLL_URL = `https://api-open.data.gov.sg/v1/public/api/datasets/${DENGUE_CLUSTERS_DATASET_ID}/poll-download`;
 
@@ -36,7 +37,8 @@ const ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/drivi
 const LTA_ACCOUNT_KEY = process.env.LTA_ACCOUNT_KEY || "";
 const LTA_INCIDENTS_URL = "https://datamall2.mytransport.sg/ltaodataservice/TrafficIncidents";
 const EVAC_BLOCKAGE_BUFFER_M = Number(process.env.EVAC_BLOCKAGE_BUFFER_M || 600);
-const EVAC_BLOCKAGES_TTL_MS = 2 * 60_000;
+const EVAC_HAZARDS_TTL_MS = 2 * 60_000;
+const EVAC_DENGUE_TTL_MS = 30 * 60_000;
 let evacuationDemoData = null;
 
 const cache = new Map();
@@ -98,11 +100,36 @@ function squarePolygonRing(lat, lng, bufferMeters) {
   ];
 }
 
-function buildAvoidPolygons(points, bufferMeters) {
-  return {
-    type: "MultiPolygon",
-    coordinates: points.map((point) => [squarePolygonRing(point.lat, point.lng, bufferMeters)])
-  };
+function extractPolygonsFromGeoJson(geojson) {
+  const polygons = [];
+  (geojson?.features || []).forEach((feature) => {
+    const geometry = feature.geometry;
+    if (!geometry) return;
+    if (geometry.type === "Polygon") {
+      polygons.push(geometry.coordinates);
+    } else if (geometry.type === "MultiPolygon") {
+      geometry.coordinates.forEach((polygon) => polygons.push(polygon));
+    }
+  });
+  return polygons;
+}
+
+function buildCombinedAvoidPolygons(hazards, avoid, bufferMeters) {
+  const polygons = [];
+  if (avoid?.flood) {
+    (hazards.flood?.points || []).forEach((point) => {
+      polygons.push([squarePolygonRing(point.lat, point.lng, bufferMeters)]);
+    });
+  }
+  if (avoid?.incidents) {
+    (hazards.incidents?.points || []).forEach((point) => {
+      polygons.push([squarePolygonRing(point.lat, point.lng, bufferMeters)]);
+    });
+  }
+  if (avoid?.dengue) {
+    extractPolygonsFromGeoJson(hazards.dengue?.geojson).forEach((polygon) => polygons.push(polygon));
+  }
+  return { type: "MultiPolygon", coordinates: polygons };
 }
 
 function activeFloodPoints(records) {
@@ -148,47 +175,79 @@ async function fetchLtaIncidents() {
     }));
 }
 
-async function getEvacuationBlockages(demo) {
+async function getFloodHazard(demo) {
   if (demo) {
     const demoData = loadEvacuationDemoData();
-    return {
-      points: demoData.blockagePoints,
-      polygons: buildAvoidPolygons(demoData.blockagePoints, EVAC_BLOCKAGE_BUFFER_M),
-      source: "demo"
-    };
+    return { points: demoData.floodPoints, source: "demo" };
   }
 
-  return cached("evacuation-blockages", EVAC_BLOCKAGES_TTL_MS, async () => {
-    const points = [];
-
+  return cached("hazard-flood", EVAC_HAZARDS_TTL_MS, async () => {
     try {
-      const floodRecords = await fetchFloodAlerts();
-      points.push(...activeFloodPoints(floodRecords));
+      const points = activeFloodPoints(await fetchFloodAlerts());
+      if (!points.length) {
+        const demoData = loadEvacuationDemoData();
+        return { points: demoData.floodPoints, source: "demo-fallback" };
+      }
+      return { points, source: "live" };
     } catch (error) {
       console.error("Evacuation: flood alerts unavailable:", error.message);
+      const demoData = loadEvacuationDemoData();
+      return { points: demoData.floodPoints, source: "demo-fallback" };
     }
+  });
+}
 
+async function getIncidentHazard(demo) {
+  if (demo) {
+    const demoData = loadEvacuationDemoData();
+    return { points: demoData.incidentPoints, source: "demo" };
+  }
+
+  return cached("hazard-incidents", EVAC_HAZARDS_TTL_MS, async () => {
     try {
-      points.push(...(await fetchLtaIncidents()));
+      const points = await fetchLtaIncidents();
+      if (!points.length) {
+        const demoData = loadEvacuationDemoData();
+        return { points: demoData.incidentPoints, source: "demo-fallback" };
+      }
+      return { points, source: "live" };
     } catch (error) {
       console.error("Evacuation: LTA traffic incidents unavailable:", error.message);
-    }
-
-    if (!points.length) {
       const demoData = loadEvacuationDemoData();
-      return {
-        points: demoData.blockagePoints,
-        polygons: buildAvoidPolygons(demoData.blockagePoints, EVAC_BLOCKAGE_BUFFER_M),
-        source: "demo-fallback"
-      };
+      return { points: demoData.incidentPoints, source: "demo-fallback" };
     }
-
-    return {
-      points,
-      polygons: buildAvoidPolygons(points, EVAC_BLOCKAGE_BUFFER_M),
-      source: "live"
-    };
   });
+}
+
+async function getDengueHazard(demo) {
+  if (demo) {
+    const demoData = loadEvacuationDemoData();
+    return { geojson: demoData.dengueGeoJson, source: "demo" };
+  }
+
+  return cached("hazard-dengue", EVAC_DENGUE_TTL_MS, async () => {
+    try {
+      const geojson = await fetchDengueClusters();
+      if (!geojson?.features?.length) {
+        const demoData = loadEvacuationDemoData();
+        return { geojson: demoData.dengueGeoJson, source: "demo-fallback" };
+      }
+      return { geojson, source: "live" };
+    } catch (error) {
+      console.error("Evacuation: dengue clusters unavailable:", error.message);
+      const demoData = loadEvacuationDemoData();
+      return { geojson: demoData.dengueGeoJson, source: "demo-fallback" };
+    }
+  });
+}
+
+async function getEvacuationHazards(demo) {
+  const [flood, incidents, dengue] = await Promise.all([
+    getFloodHazard(demo),
+    getIncidentHazard(demo),
+    getDengueHazard(demo)
+  ]);
+  return { flood, incidents, dengue };
 }
 
 async function fetchOrsRoute(start, end, avoidPolygons) {
@@ -241,6 +300,22 @@ async function fetchNearestAddress(lat, lng) {
     road: result.ROAD,
     postalCode: result.POSTALCODE
   };
+}
+
+async function fetchOneMapSearch(query) {
+  const url = `${ONEMAP_SEARCH_URL}?searchVal=${encodeURIComponent(query)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`OneMap search upstream error: ${response.status}`);
+  const payload = await response.json();
+  return (payload.results || [])
+    .map((result) => ({
+      name: result.SEARCHVAL,
+      address: result.ADDRESS,
+      postalCode: result.POSTAL,
+      lat: Number(result.LATITUDE),
+      lng: Number(result.LONGITUDE)
+    }))
+    .filter((result) => Number.isFinite(result.lat) && Number.isFinite(result.lng));
 }
 
 const MIME_TYPES = {
@@ -1100,14 +1175,14 @@ async function handleApi(req, res) {
     return;
   }
 
-  if (req.method === "GET" && req.url.startsWith("/api/evacuation/blockages")) {
+  if (req.method === "GET" && req.url.startsWith("/api/evacuation/hazards")) {
     try {
       const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
       const demo = params.get("demo") === "true";
-      const blockages = await getEvacuationBlockages(demo);
-      sendJson(res, 200, { ...blockages, fetchedAt: new Date().toISOString() });
+      const hazards = await getEvacuationHazards(demo);
+      sendJson(res, 200, { ...hazards, fetchedAt: new Date().toISOString() });
     } catch (error) {
-      sendJson(res, 502, { error: "Unable to load road blockage data." });
+      sendJson(res, 502, { error: "Unable to load hazard data." });
     }
     return;
   }
@@ -1118,13 +1193,19 @@ async function handleApi(req, res) {
       const start = body.start;
       const end = body.end;
       const requestedDemo = body.demo === true;
+      const avoid = {
+        flood: body.avoid?.flood !== false,
+        incidents: body.avoid?.incidents !== false,
+        dengue: body.avoid?.dengue === true
+      };
 
       if (!isValidCoord(start) || !isValidCoord(end)) {
         sendJson(res, 400, { error: "start and end coordinates ({ lat, lng }) are required." });
         return;
       }
 
-      const blockages = await getEvacuationBlockages(requestedDemo);
+      const hazards = await getEvacuationHazards(requestedDemo);
+      const avoidPolygons = buildCombinedAvoidPolygons(hazards, avoid, EVAC_BLOCKAGE_BUFFER_M);
 
       let baseline = null;
       let rerouted = null;
@@ -1133,8 +1214,8 @@ async function handleApi(req, res) {
       if (!demo && ORS_API_KEY) {
         try {
           baseline = await fetchOrsRoute(start, end, null);
-          rerouted = blockages.polygons.coordinates.length
-            ? await fetchOrsRoute(start, end, blockages.polygons)
+          rerouted = avoidPolygons.coordinates.length
+            ? await fetchOrsRoute(start, end, avoidPolygons)
             : baseline;
         } catch (error) {
           console.error("Evacuation: ORS routing failed, falling back to demo route:", error.message);
@@ -1153,7 +1234,8 @@ async function handleApi(req, res) {
       sendJson(res, 200, {
         baseline,
         rerouted,
-        blockages,
+        hazards,
+        avoid,
         demo,
         fetchedAt: new Date().toISOString()
       });
@@ -1206,6 +1288,23 @@ async function handleApi(req, res) {
       sendJson(res, 200, { address });
     } catch (error) {
       sendJson(res, 502, { error: "Unable to reach the OneMap service." });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && req.url.startsWith("/api/onemap/search")) {
+    const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
+    const query = (params.get("q") || "").trim();
+    if (!query) {
+      sendJson(res, 400, { error: "q query parameter is required." });
+      return;
+    }
+    try {
+      const key = `onemap-search:${query.toLowerCase()}`;
+      const results = await cached(key, 30 * 60_000, () => fetchOneMapSearch(query));
+      sendJson(res, 200, { results });
+    } catch (error) {
+      sendJson(res, 502, { error: "Unable to reach the OneMap search service." });
     }
     return;
   }

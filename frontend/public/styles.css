@@ -2346,6 +2346,105 @@ p {
   grid-template-columns: 1fr;
 }
 
+.evac-hazard-toggles {
+  top: 16px;
+  left: 16px;
+  right: auto;
+  gap: 10px;
+}
+
+.evac-toggle-heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 850;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.evac-hazard-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.evac-hazard-row span {
+  min-width: 92px;
+  font-weight: 760;
+}
+
+.evac-hazard-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.evac-location-form {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.evac-location-field {
+  display: grid;
+  gap: 8px;
+}
+
+.evac-location-field label {
+  font-weight: 760;
+}
+
+.evac-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.evac-input-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 12px;
+  min-height: 40px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.evac-location-button {
+  align-self: flex-start;
+}
+
+.evac-geocode-results {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evac-geocode-results button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--mist);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.evac-geocode-results button:hover {
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
+.evac-field-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 @media (max-width: 980px) {
   .flood-map-layout {
     grid-template-columns: 1fr;
@@ -2362,6 +2461,11 @@ p {
 
   .evac-controls {
     flex-wrap: wrap;
+  }
+
+  .evac-hazard-toggles {
+    position: static;
+    margin-bottom: 12px;
   }
 }
 
