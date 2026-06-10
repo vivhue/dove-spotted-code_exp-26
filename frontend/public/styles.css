@@ -13,6 +13,10 @@
   --shadow: 0 18px 50px rgba(18, 19, 18, 0.12);
   --header-bg: rgba(251, 252, 251, 0.92);
   --overlay-bg: rgba(255, 255, 255, 0.96);
+  --hero-overlay: rgba(251, 252, 251, 0.88);
+  --cta-bg: #121312;
+  --cta-text: #ffffff;
+  --cta-hover-bg: var(--teal-dark);
   color-scheme: light;
 }
 
@@ -31,6 +35,10 @@
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
   --header-bg: rgba(20, 23, 26, 0.85);
   --overlay-bg: rgba(27, 31, 35, 0.96);
+  --hero-overlay: rgba(20, 23, 26, 0.88);
+  --cta-bg: #2dd4bf;
+  --cta-text: #0a1716;
+  --cta-hover-bg: #5eead4;
   color-scheme: dark;
 }
 
@@ -173,19 +181,19 @@ input {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 0 16px;
-  background: #fff;
+  background: var(--card);
 }
 
 .top-nav .nav-signup-link {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: #fff;
+  border-color: var(--cta-bg);
+  background: var(--cta-bg);
+  color: var(--cta-text);
 }
 
 .top-nav .nav-signup-link:hover {
-  border-color: var(--teal-dark);
-  background: var(--teal-dark);
-  color: #fff;
+  border-color: var(--cta-hover-bg);
+  background: var(--cta-hover-bg);
+  color: var(--cta-text);
 }
 
 .nav-live-link span,
@@ -290,15 +298,15 @@ p {
 }
 
 .sign-up-button {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: #fff;
+  border-color: var(--cta-bg);
+  background: var(--cta-bg);
+  color: var(--cta-text);
 }
 
 .sign-up-button:hover {
-  border-color: var(--teal-dark);
-  background: var(--teal-dark);
-  color: #fff;
+  border-color: var(--cta-hover-bg);
+  background: var(--cta-hover-bg);
+  color: var(--cta-text);
 }
 
 .access-note {
@@ -318,19 +326,20 @@ p {
   justify-content: center;
   gap: 10px;
   min-height: 44px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--cta-bg);
   border-radius: 6px;
   padding: 0 18px;
-  background: var(--ink);
-  color: #fff;
+  background: var(--cta-bg);
+  color: var(--cta-text);
   font-weight: 760;
   cursor: pointer;
 }
 
 .primary-button:hover,
 .form-button:hover {
-  background: var(--teal-dark);
-  border-color: var(--teal-dark);
+  background: var(--cta-hover-bg);
+  border-color: var(--cta-hover-bg);
+  color: var(--cta-text);
 }
 
 .secondary-button,
@@ -491,8 +500,8 @@ p {
 }
 
 .ai-action button:hover {
-  background: var(--ink);
-  color: #fff;
+  background: var(--cta-bg);
+  color: var(--cta-text);
 }
 
 .response-track {
@@ -781,7 +790,7 @@ p {
 
 .auth-page {
   background:
-    linear-gradient(rgba(251, 252, 251, 0.88), rgba(251, 252, 251, 0.88)),
+    linear-gradient(var(--hero-overlay), var(--hero-overlay)),
     url("/assets/singapore-safety-hero.svg") center/cover fixed;
 }
 
@@ -1239,7 +1248,7 @@ p {
 .approve-button {
   border: 1px solid var(--teal-dark);
   background: var(--teal-dark);
-  color: #fff;
+  color: var(--cta-text);
 }
 
 .reject-button {
@@ -1480,7 +1489,7 @@ p {
 
 .ops-header p {
   margin: 2px 0 0 48px;
-  color: #303431;
+  color: var(--muted);
   font-size: clamp(13px, 1vw, 16px);
   font-weight: 700;
 }
@@ -1512,15 +1521,15 @@ p {
 }
 
 .ops-signup-button {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: #fff;
+  border-color: var(--cta-bg);
+  background: var(--cta-bg);
+  color: var(--cta-text);
 }
 
 .ops-signup-button:hover {
-  border-color: var(--teal-dark);
-  background: var(--teal-dark);
-  color: #fff;
+  border-color: var(--cta-hover-bg);
+  background: var(--cta-hover-bg);
+  color: var(--cta-text);
 }
 
 .ops-alert {
@@ -1618,7 +1627,7 @@ p {
 }
 
 .live-map-card {
-  border: 1px solid #222;
+  border: 1px solid var(--line);
   background: var(--card);
   padding: clamp(10px, 1vw, 14px);
 }
@@ -1626,7 +1635,8 @@ p {
 .live-map-card h2 {
   margin: 0 0 12px;
   padding: clamp(14px, 2vw, 22px);
-  background: #d9d9d9;
+  background: var(--mist);
+  color: var(--ink);
   text-align: center;
   font-size: clamp(22px, 2.4vw, 36px);
 }
@@ -1634,8 +1644,8 @@ p {
 .singapore-map-wrap {
   position: relative;
   margin: 0 0 0;
-  background: #eef5f3;
-  border: 1px solid #c9d5cf;
+  background: var(--mist);
+  border: 1px solid var(--line);
   overflow: hidden;
 }
 
@@ -1672,13 +1682,14 @@ p {
 .live-activity {
   margin-top: clamp(14px, 2vw, 22px);
   padding: clamp(14px, 1.8vw, 20px);
-  background: #d9d9d9;
+  background: var(--mist);
+  color: var(--ink);
 }
 
 .live-activity h2 {
   margin-bottom: 14px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--line);
   font-size: clamp(22px, 2vw, 31px);
 }
 
@@ -1697,7 +1708,7 @@ p {
 }
 
 .ops-side-column {
-  border: 1px solid #222;
+  border: 1px solid var(--line);
   padding: clamp(10px, 1vw, 12px);
   background: var(--card);
 }
@@ -1705,7 +1716,8 @@ p {
 .ops-panel {
   margin-bottom: clamp(12px, 1.8vw, 20px);
   padding: clamp(14px, 1.6vw, 20px);
-  background: #d9d9d9;
+  background: var(--mist);
+  color: var(--ink);
 }
 
 .ops-panel:last-child {
@@ -2525,7 +2537,7 @@ p {
 .map-locate-button:hover {
   background: var(--teal);
   border-color: var(--teal);
-  color: #fff;
+  color: var(--cta-text);
 }
 
 .map-empty {

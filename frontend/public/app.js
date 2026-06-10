@@ -3585,6 +3585,14 @@ async function renderAnalytics() {
     document.getElementById('stat-zones').textContent = stats.highRiskZones;
     document.getElementById('stat-shelter').textContent = stats.shelterUtilisation + '%';
 
+    const rootStyles = getComputedStyle(document.documentElement);
+    const chartTickColor = rootStyles.getPropertyValue('--muted').trim();
+    const chartGridColor = rootStyles.getPropertyValue('--line').trim();
+    const chartScales = {
+      x: { ticks: { color: chartTickColor }, grid: { color: chartGridColor } },
+      y: { beginAtZero: true, ticks: { color: chartTickColor }, grid: { color: chartGridColor } }
+    };
+
     const tPayload = await tResp.json();
     const labels = (tPayload.series || []).map(s => s.date);
     const floodData = (tPayload.series || []).map(s => s.count);
@@ -3601,7 +3609,7 @@ async function renderAnalytics() {
           fill: true
         }]
       },
-      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      options: { plugins: { legend: { display: false } }, scales: chartScales }
     });
 
     const fireData = labels.map((_, i) => Math.max(0, Math.round(2 + Math.sin(i * 0.8) * 2)));
@@ -3618,7 +3626,7 @@ async function renderAnalytics() {
           fill: true
         }]
       },
-      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      options: { plugins: { legend: { display: false } }, scales: chartScales }
     });
 
     const iPayload = await iResp.json();
