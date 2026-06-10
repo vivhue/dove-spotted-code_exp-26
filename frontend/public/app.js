@@ -1047,7 +1047,15 @@ const SEVERITY_COLORS = {
   Minor: "#0f766e"
 };
 
+const DENGUE_BUCKETS = [
+  { max: 5, color: "#ffd166", label: "1–5 cases" },
+  { max: 10, color: "#f4a259", label: "6–10 cases" },
+  { max: 20, color: "#ef6351", label: "11–20 cases" },
+  { max: Infinity, color: "#a92525", label: "21+ cases" }
+];
+
 let floodMapTimer = null;
+let dengueMapTimer = null;
 
 function severityColor(severity) {
   return SEVERITY_COLORS[severity] || "#5e655f";
@@ -1094,6 +1102,57 @@ function floodPopup({ record, reading }) {
       ${reading.instruction ? `<p class="flood-popup-instruction">${reading.instruction}</p>` : ""}
       <p class="flood-popup-time">Issued ${formatDateTime(record.datetime)}</p>
     </div>
+  `;
+}
+
+function dengueColor(caseSize) {
+  const bucket = DENGUE_BUCKETS.find((entry) => caseSize <= entry.max);
+  return bucket ? bucket.color : DENGUE_BUCKETS[DENGUE_BUCKETS.length - 1].color;
+}
+
+function parseHtmlTable(html) {
+  const fields = {};
+  if (!html) return fields;
+  const rowRegex = /<th[^>]*>([\s\S]*?)<\/th>\s*<td[^>]*>([\s\S]*?)<\/td>/gi;
+  let match;
+  while ((match = rowRegex.exec(html))) {
+    const key = match[1].replace(/<[^>]+>/g, "").trim();
+    const value = match[2].replace(/<[^>]+>/g, "").trim();
+    if (key) fields[key] = value;
+  }
+  return fields;
+}
+
+function dengueClusterInfo(feature) {
+  const props = feature.properties || {};
+  const fields = parseHtmlTable(props.Description);
+  const caseSize = Number(
+    fields.CASE_SIZE ?? fields.Case_Size ?? props.CASE_SIZE ?? 0
+  ) || 0;
+  const locality = fields.LOCALITY || fields.Locality || props.LOCALITY || props.Name || "Unknown locality";
+  return { caseSize, locality };
+}
+
+function denguePopup({ caseSize, locality }) {
+  return `
+    <div class="flood-popup">
+      <span class="severity-pill" style="background:${dengueColor(caseSize)}">${caseSize} case${caseSize === 1 ? "" : "s"}</span>
+      <h3>${locality}</h3>
+      <p>Active dengue cluster reported by NEA.</p>
+    </div>
+  `;
+}
+
+function dengueListItem({ caseSize, locality }, index) {
+  return `
+    <article class="flood-alert-card">
+      <span class="severity-pill" style="background:${dengueColor(caseSize)}">${caseSize}</span>
+      <div>
+        <strong>${locality}</strong>
+        <p>Active dengue cluster</p>
+      </div>
+      <button type="button" class="map-locate-button" data-locate-dengue="${index}">Locate</button>
+    </article>
   `;
 }
 
@@ -1189,21 +1248,30 @@ async function renderFloodMap() {
       <main class="flood-map-shell">
         <section class="dashboard-title">
           <div>
-            <p class="eyebrow">Live map · OneMap basemap + PUB flood alerts</p>
-            <h1>Flooding Areas Across Singapore</h1>
+            <p class="eyebrow">Live map · OneMap basemap + PUB flood alerts + NEA dengue clusters</p>
+            <h1>Flooding & Dengue Clusters Across Singapore</h1>
           </div>
           <p class="map-updated" data-updated>Loading live flood data…</p>
         </section>
         <div class="flood-map-layout">
           <div class="flood-map-canvas">
-            <div id="flood-map" aria-label="Map of active flood alerts in Singapore"></div>
-            <ul class="flood-severity-legend" aria-label="Severity legend">
+            <div id="flood-map" aria-label="Map of active flood alerts and dengue clusters in Singapore"></div>
+            <div class="map-layer-toggle" aria-label="Map layers">
+              <label><input type="checkbox" data-layer-toggle="flood" checked /> Flood Alerts</label>
+              <label><input type="checkbox" data-layer-toggle="dengue" checked /> Dengue Clusters</label>
+            </div>
+            <ul class="flood-severity-legend" aria-label="Flood severity legend">
               ${SEVERITY_ORDER.map((level) => `<li><i style="background:${severityColor(level)}"></i>${level}</li>`).join("")}
             </ul>
+            <ul class="dengue-severity-legend" aria-label="Dengue cluster legend">
+              ${DENGUE_BUCKETS.map((bucket) => `<li><i style="background:${bucket.color}"></i>${bucket.label}</li>`).join("")}
+            </ul>
           </div>
-          <aside class="flood-alert-rail" aria-label="Active flood alerts">
+          <aside class="flood-alert-rail" aria-label="Active flood alerts and dengue clusters">
             <h2>Active Alerts</h2>
             <div class="flood-alert-list" data-alert-list><p class="map-empty">Loading…</p></div>
+            <h2>Active Dengue Clusters</h2>
+            <div class="flood-alert-list" data-dengue-list><p class="map-empty">Loading…</p></div>
           </aside>
         </div>
       </main>
@@ -1219,6 +1287,61 @@ async function renderFloodMap() {
   }).addTo(map);
 
   const markerLayer = L.layerGroup().addTo(map);
+  const dengueLayer = L.layerGroup().addTo(map);
+
+  document.querySelectorAll("[data-layer-toggle]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const layer = checkbox.dataset.layerToggle === "flood" ? markerLayer : dengueLayer;
+      if (checkbox.checked) {
+        map.addLayer(layer);
+      } else {
+        map.removeLayer(layer);
+      }
+    });
+  });
+
+  async function refreshDengue() {
+    const list = document.querySelector("[data-dengue-list]");
+    if (!list) return;
+
+    try {
+      const response = await fetch("/api/dengue-clusters");
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to load dengue clusters.");
+
+      const features = payload.geojson?.features || [];
+      dengueLayer.clearLayers();
+      const entries = features.map((feature) => {
+        const info = dengueClusterInfo(feature);
+        const layer = L.geoJSON(feature, {
+          style: () => ({
+            color: dengueColor(info.caseSize),
+            weight: 1.5,
+            fillColor: dengueColor(info.caseSize),
+            fillOpacity: 0.35
+          })
+        })
+          .bindPopup(denguePopup(info))
+          .addTo(dengueLayer);
+        return { layer, info };
+      });
+
+      list.innerHTML = entries.length
+        ? entries.map(({ info }, index) => dengueListItem(info, index)).join("")
+        : `<p class="map-empty">No active dengue clusters reported right now.</p>`;
+
+      list.querySelectorAll("[data-locate-dengue]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const { layer } = entries[Number(button.dataset.locateDengue)];
+          const bounds = layer.getBounds();
+          map.flyToBounds(bounds, { duration: 0.6, maxZoom: 16 });
+          layer.openPopup(bounds.getCenter());
+        });
+      });
+    } catch (error) {
+      list.innerHTML = `<p class="map-empty error">${error.message}</p>`;
+    }
+  }
 
   async function refresh() {
     const updatedLabel = document.querySelector("[data-updated]");
@@ -1266,14 +1389,19 @@ async function renderFloodMap() {
     }
   }
 
-  await refresh();
+  await Promise.all([refresh(), refreshDengue()]);
   floodMapTimer = window.setInterval(refresh, 60_000);
+  dengueMapTimer = window.setInterval(refreshDengue, 5 * 60_000);
 }
 
 function renderRoute() {
   if (floodMapTimer) {
     window.clearInterval(floodMapTimer);
     floodMapTimer = null;
+  }
+  if (dengueMapTimer) {
+    window.clearInterval(dengueMapTimer);
+    dengueMapTimer = null;
   }
   const renderer = routes[window.location.hash] || renderLanding;
   renderer();
