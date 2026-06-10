@@ -2399,11 +2399,12 @@ async function renderRiskPrediction() {
     </div>
   `;
 
-  // Load Leaflet and fetch heatmap
+  // Leaflet is pre-loaded in index.html. Capture the reference now so that
+  // initOneMapDashboard's onemap-leaflet.js (which overwrites window.L) cannot
+  // clobber it after an async yield (e.g. during loadHeatmap).
+  const L = window.L;
   try {
-    await loadStylesheet("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
-    await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
-
+    if (!L) throw new Error('Leaflet not loaded');
     const map = L.map("risk-map").setView([1.3521, 103.8198], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(map);
     const layer = L.layerGroup().addTo(map);
