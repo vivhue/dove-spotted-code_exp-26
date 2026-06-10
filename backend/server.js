@@ -17,10 +17,12 @@ const PROFESSIONAL_TEST_DOMAINS = (process.env.PROFESSIONAL_TEST_DOMAINS || "qui
   .map((domain) => domain.trim().toLowerCase())
   .filter(Boolean);
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
-const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_RATE_MAX_FAILURES = 10;
-const ACCOUNT_LOCK_FAILURES = 5;
-const ACCOUNT_LOCK_MS = 15 * 60 * 1000;
+const LOGIN_RATE_WINDOW_MS = 60 * 1000;
+const LOGIN_RATE_MAX_FAILURES = 3;
+const ACCOUNT_LOCK_FAILURES = 3;
+const ACCOUNT_LOCK_MS = 60 * 1000;
+const PASSWORD_REQUIREMENTS_MESSAGE = "Password must contain at least 8 characters, 1 uppercase letter, 1 number, and 1 special character.";
+const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again later.";
 const userSessionStore = new Map();
 const loginRateLimitStore = new Map();
 let mongoConnected = false;
@@ -652,6 +654,7 @@ function createUserSession(res, req, user) {
   const issuedAt = new Date().toISOString();
   userSessionStore.set(token, {
     userId: String(user._id),
+    name: user.name || "",
     email: user.email,
     role: user.role,
     issuedAt,
@@ -663,6 +666,7 @@ function createUserSession(res, req, user) {
     `quickaid_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}${secure ? "; Secure" : ""}`
   );
   return {
+    name: user.name || "",
     role: user.role,
     email: user.email,
     issuedAt
@@ -703,16 +707,45 @@ function validEmail(email) {
   return typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function isStrongPassword(password) {
+  return typeof password === "string" &&
+    password.length >= 8 &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    /[^A-Za-z0-9]/.test(password);
+}
+
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function hasMissingRequired(body, fields) {
+  return fields.some((field) => {
+    const value = body[field];
+    if (typeof value === "boolean") return value !== true;
+    return String(value || "").trim() === "";
+  });
+}
+
+function professionalDomainList() {
+  return Object.values(PROFESSIONAL_AGENCY_DOMAINS).flat();
+}
+
+function personalDomainAllowed(email) {
+  const domain = emailDomain(email);
+  if (!domain) return false;
+  if (domain === "gov.sg" || domain.endsWith(".gov.sg")) return false;
+  return ![...professionalDomainList(), ...PROFESSIONAL_TEST_DOMAINS]
+    .some((allowedDomain) => domainMatches(domain, allowedDomain));
+}
+
 function validateProfessionalCredentials(body) {
   const errors = {};
-  if (!validEmail(body.email)) errors.email = "Enter a valid authorised email.";
-  if (typeof body.password !== "string" || body.password.length < 8) {
-    errors.password = "Password must be at least 8 characters.";
+  if (hasMissingRequired(body, ["email", "password"])) {
+    errors.required = "Please fill in all required fields.";
+    return errors;
   }
+  if (!validEmail(body.email)) errors.email = "Please enter a valid email address.";
   return errors;
 }
 
@@ -722,23 +755,26 @@ function validateProfessionalSignup(body) {
   const agency = String(body.agency || "").trim().toUpperCase();
   const roleTitle = String(body.roleTitle || "").trim();
 
+  if (hasMissingRequired(body, ["name", "email", "agency", "roleTitle", "password", "confirmPassword"])) {
+    errors.required = "Please fill in all required fields.";
+    return errors;
+  }
   if (name.length < 2 || name.length > 80) errors.name = "Enter your full name.";
-  if (!validEmail(body.email)) errors.email = "Enter a valid work email.";
+  if (!validEmail(body.email)) errors.email = "Please enter a valid email address.";
   if (!PROFESSIONAL_AGENCY_DOMAINS[agency]) errors.agency = "Choose a supported agency.";
   if (roleTitle.length < 2 || roleTitle.length > 100) errors.roleTitle = "Enter your role or title.";
-  if (typeof body.password !== "string" || body.password.length < 10) {
-    errors.password = "Password must be at least 10 characters.";
-  }
+  if (!isStrongPassword(body.password)) errors.password = PASSWORD_REQUIREMENTS_MESSAGE;
   if (body.password !== body.confirmPassword) errors.confirmPassword = "Passwords do not match.";
   return errors;
 }
 
 function validatePublicLogin(body) {
   const errors = {};
-  if (!validEmail(body.email)) errors.email = "Enter a valid email.";
-  if (typeof body.password !== "string" || body.password.length < 6) {
-    errors.password = "Password must be at least 6 characters.";
+  if (hasMissingRequired(body, ["email", "password"])) {
+    errors.required = "Please fill in all required fields.";
+    return errors;
   }
+  if (!validEmail(body.email)) errors.email = "Please enter a valid email address.";
   return errors;
 }
 
@@ -749,11 +785,14 @@ function validateVolunteerSignup(body) {
   const postalCode = String(body.postalCode || "").trim();
   const allowedAvailability = ["weekdays", "evenings", "weekends", "emergency"];
 
-  if (name.length < 2 || name.length > 80) errors.name = "Enter your full name.";
-  if (!validEmail(body.email)) errors.email = "Enter a valid email.";
-  if (typeof body.password !== "string" || body.password.length < 8) {
-    errors.password = "Password must be at least 8 characters.";
+  if (hasMissingRequired(body, ["name", "email", "phone", "password", "confirmPassword", "availability", "acceptTerms"])) {
+    errors.required = "Please fill in all required fields.";
+    return errors;
   }
+  if (name.length < 2 || name.length > 80) errors.name = "Enter your full name.";
+  if (!validEmail(body.email)) errors.email = "Please enter a valid email address.";
+  else if (!personalDomainAllowed(body.email)) errors.email = "Please use a valid personal email address.";
+  if (!isStrongPassword(body.password)) errors.password = PASSWORD_REQUIREMENTS_MESSAGE;
   if (body.password !== body.confirmPassword) errors.confirmPassword = "Passwords do not match.";
   if (!/^[689]\d{7}$/.test(phone)) errors.phone = "Enter a valid 8-digit Singapore phone number.";
   if (postalCode && !/^\d{6}$/.test(postalCode)) errors.postalCode = "Postal code must contain 6 digits.";
@@ -795,16 +834,6 @@ async function validateUserPassword(user, password) {
   return verifyPassword(password, user.passwordHash);
 }
 
-function loginPageName(role) {
-  return role === "professional" ? "Professional Login" : "Public Login";
-}
-
-function accountTypeName(user) {
-  if (user?.role === "professional") return "professional";
-  if (user?.isVolunteer) return "volunteer";
-  return "public";
-}
-
 function loginRateKey(req, role, email) {
   const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   const address = forwarded || req.socket.remoteAddress || "unknown";
@@ -837,14 +866,6 @@ function clearLoginFailures(key) {
 
 async function authenticateUser(req, role, email, password) {
   const key = loginRateKey(req, role, email);
-  const retryAfter = loginRateStatus(key);
-  if (retryAfter) {
-    return {
-      statusCode: 429,
-      error: `Too many sign-in attempts. Try again in ${Math.ceil(retryAfter / 60)} minutes.`
-    };
-  }
-
   const user = await findUser(
     email,
     role,
@@ -853,17 +874,20 @@ async function authenticateUser(req, role, email, password) {
   if (!user) {
     const existingAccount = await findUser(email, null);
     if (existingAccount) {
-      return {
-        statusCode: 401,
-        error: `This email is registered as a ${accountTypeName(existingAccount)} account. Use ${loginPageName(existingAccount.role)}.`
-      };
+      return { statusCode: 401, error: "Invalid email or password." };
     }
   }
   if (user?.loginLockedUntil && user.loginLockedUntil.getTime() > Date.now()) {
-    const minutes = Math.max(1, Math.ceil((user.loginLockedUntil.getTime() - Date.now()) / 60_000));
     return {
       statusCode: 423,
-      error: `This account is temporarily locked. Try again in ${minutes} minutes.`
+      error: "Account temporarily locked. Try again in 1 minute."
+    };
+  }
+  const retryAfter = loginRateStatus(key);
+  if (retryAfter) {
+    return {
+      statusCode: 429,
+      error: "Too many failed login attempts. Please try again in 1 minute."
     };
   }
   if (user && !user.passwordHash) {
@@ -881,6 +905,11 @@ async function authenticateUser(req, role, email, password) {
       if (user.failedLoginAttempts >= ACCOUNT_LOCK_FAILURES) {
         user.loginLockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MS);
         user.failedLoginAttempts = 0;
+        await user.save();
+        return {
+          statusCode: 423,
+          error: "Too many failed login attempts. Please try again in 1 minute."
+        };
       }
       await user.save();
     }
@@ -1273,6 +1302,39 @@ async function handleApi(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && req.url === '/api/incidents') {
+    if (!mongoConnected) {
+      sendJson(res, 503, { error: 'MongoDB not connected' });
+      return;
+    }
+    try {
+      const Incident = require('./models/Incident');
+      const incidents = await Incident.find({
+        lat: { $type: 'number' },
+        lng: { $type: 'number' }
+      }).sort({ createdAt: -1 }).limit(200).lean();
+      sendJson(res, 200, {
+        count: incidents.length,
+        incidents: incidents.map((incident) => ({
+          id: incident._id.toString(),
+          type: incident.type,
+          severity: incident.severity,
+          status: incident.status,
+          areaDesc: incident.areaDesc,
+          location: incident.location,
+          lat: incident.lat,
+          lng: incident.lng,
+          note: incident.note,
+          createdAt: incident.createdAt
+        }))
+      });
+    } catch (error) {
+      console.error('Incident read error:', error.message);
+      sendJson(res, 500, { error: 'Failed to read incidents' });
+    }
+    return;
+  }
+
   // Accept incident reports (stored to MongoDB when connected)
   if (req.method === 'POST' && req.url === '/api/incidents') {
     try {
@@ -1358,8 +1420,20 @@ async function handleApi(req, res) {
       sendJson(res, 401, { error: "Sign in required." });
       return;
     }
+    let sessionName = session.name || "";
+    if (!sessionName && mongoConnected && session.userId) {
+      try {
+        const user = await User.findById(session.userId).select("name").lean();
+        sessionName = user?.name || "";
+        const storedSession = userSessionStore.get(session.token);
+        if (storedSession) storedSession.name = sessionName;
+      } catch (error) {
+        sessionName = "";
+      }
+    }
     sendJson(res, 200, {
       session: {
+        name: sessionName,
         role: session.role,
         email: session.email,
         issuedAt: session.issuedAt
@@ -1374,6 +1448,22 @@ async function handleApi(req, res) {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/api/auth/forgot-password") {
+    try {
+      const body = await parseBody(req);
+      if (!validEmail(body.email)) {
+        sendJson(res, 400, { error: "Please enter a valid email address." });
+        return;
+      }
+      sendJson(res, 200, {
+        message: "If an account exists for this email, password reset instructions will be sent."
+      });
+    } catch (error) {
+      sendJson(res, 500, { error: GENERIC_ERROR_MESSAGE });
+    }
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/api/auth/professional/signup") {
     try {
       const body = await parseBody(req);
@@ -1383,7 +1473,7 @@ async function handleApi(req, res) {
         return;
       }
       if (!mongoConnected) {
-        sendJson(res, 503, { error: "MongoDB must be connected before creating an account." });
+        sendJson(res, 503, { error: GENERIC_ERROR_MESSAGE });
         return;
       }
 
@@ -1391,7 +1481,7 @@ async function handleApi(req, res) {
       const agency = String(body.agency).trim().toUpperCase();
       if (!professionalDomainAllowed(email, agency)) {
         sendJson(res, 403, {
-          error: `This email domain is not authorised for ${agency}. Use your official agency email.`
+          error: "Please use an approved professional email domain."
         });
         return;
       }
@@ -1402,7 +1492,7 @@ async function handleApi(req, res) {
         return;
       }
 
-      await User.create({
+      const user = await User.create({
         name: String(body.name).trim(),
         email,
         passwordHash: await hashPassword(body.password),
@@ -1410,12 +1500,13 @@ async function handleApi(req, res) {
         status: "approved",
         agency,
         roleTitle: String(body.roleTitle).trim(),
-        mfaMethod: "none",
         approvedAt: new Date()
       });
 
       sendJson(res, 201, {
-        message: "Professional account created. You can now sign in."
+        message: "Professional account created successfully.",
+        session: createUserSession(res, req, user),
+        redirectTo: "/#/dashboard"
       });
     } catch (error) {
       if (error?.code === 11000) {
@@ -1423,7 +1514,7 @@ async function handleApi(req, res) {
         return;
       }
       logger.logError("auth.professionalSignup", error, { method: req.method, url: req.url, statusCode: 500 });
-      sendJson(res, 500, { error: "Unable to submit the registration right now." });
+      sendJson(res, 500, { error: GENERIC_ERROR_MESSAGE });
     }
     return;
   }
@@ -1438,7 +1529,7 @@ async function handleApi(req, res) {
       }
 
       if (!mongoConnected) {
-        sendJson(res, 503, { error: "MongoDB is not connected. Professional sign-in is unavailable." });
+        sendJson(res, 503, { error: GENERIC_ERROR_MESSAGE });
         return;
       }
 
@@ -1460,7 +1551,7 @@ async function handleApi(req, res) {
         redirectTo: "/#/dashboard"
       });
     } catch (error) {
-      sendJson(res, 400, { error: "Invalid request payload." });
+      sendJson(res, 500, { error: GENERIC_ERROR_MESSAGE });
     }
     return;
   }
@@ -1475,7 +1566,7 @@ async function handleApi(req, res) {
       }
 
       if (!mongoConnected) {
-        sendJson(res, 503, { error: "MongoDB is not connected. Personal sign-in is unavailable." });
+        sendJson(res, 503, { error: GENERIC_ERROR_MESSAGE });
         return;
       }
       const email = normalizeEmail(body.email);
@@ -1494,7 +1585,7 @@ async function handleApi(req, res) {
         redirectTo: "/#/dashboard"
       });
     } catch (error) {
-      sendJson(res, 400, { error: "Invalid request payload." });
+      sendJson(res, 500, { error: GENERIC_ERROR_MESSAGE });
     }
     return;
   }
@@ -1508,14 +1599,14 @@ async function handleApi(req, res) {
         return;
       }
       if (!mongoConnected) {
-        sendJson(res, 503, { error: "MongoDB must be connected before creating an account." });
+        sendJson(res, 503, { error: GENERIC_ERROR_MESSAGE });
         return;
       }
 
       const email = normalizeEmail(body.email);
       const existingUser = await User.findOne({ email });
       if (existingUser) {
-        sendJson(res, 409, { error: "An account with this email already exists. Sign in instead." });
+        sendJson(res, 409, { error: "An account with this email already exists." });
         return;
       }
 
@@ -1538,7 +1629,6 @@ async function handleApi(req, res) {
         postalCode: String(body.postalCode || "").trim(),
         volunteerSkills,
         volunteerAvailability: body.availability,
-        mfaMethod: "none",
         approvedAt: new Date(),
         lastLoginAt: new Date()
       });
@@ -1554,7 +1644,7 @@ async function handleApi(req, res) {
         return;
       }
       logger.logError("auth.volunteerSignup", error, { method: req.method, url: req.url, statusCode: 500 });
-      sendJson(res, 500, { error: "Unable to create the account right now." });
+      sendJson(res, 500, { error: GENERIC_ERROR_MESSAGE });
     }
     return;
   }

@@ -38,11 +38,6 @@ async function upsertUser(user) {
         agency: user.agency || "",
         roleTitle: user.roleTitle || "",
         approvedAt: user.status === "approved" ? new Date() : undefined
-      },
-      $setOnInsert: {
-        telegramChatId: "",
-        telegramUsername: "",
-        mfaMethod: "none"
       }
     },
     { upsert: true, returnDocument: "after" }

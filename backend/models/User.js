@@ -62,28 +62,6 @@ const userSchema = new mongoose.Schema(
       enum: ["", "weekdays", "evenings", "weekends", "emergency"],
       default: ""
     },
-    telegramChatId: {
-      type: String,
-      trim: true,
-      default: ""
-    },
-    telegramUsername: {
-      type: String,
-      trim: true,
-      default: ""
-    },
-    telegramLinkedAt: {
-      type: Date
-    },
-    telegramLinkTokenHash: {
-      type: String,
-      select: false,
-      default: ""
-    },
-    telegramLinkExpiresAt: {
-      type: Date,
-      select: false
-    },
     passwordResetCodeHash: {
       type: String,
       select: false,
@@ -97,11 +75,6 @@ const userSchema = new mongoose.Schema(
       type: Number,
       select: false,
       default: 0
-    },
-    mfaMethod: {
-      type: String,
-      enum: ["telegram", "demo", "none"],
-      default: "demo"
     },
     approvedAt: {
       type: Date

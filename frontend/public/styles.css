@@ -2476,7 +2476,11 @@ p {
 }
 
 .command-brand-block p {
-  display: none;
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.1;
+  color: var(--muted);
 }
 
 .command-brand-mark {
@@ -2490,35 +2494,6 @@ p {
   width: 20px;
   height: 20px;
   color: var(--teal);
-}
-
-.command-icon-button {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.command-icon-button:hover {
-  background: var(--mist);
-  color: var(--ink);
-}
-
-.command-icon-button > span {
-  position: absolute;
-  top: 9px;
-  right: 10px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--red);
-  box-shadow: 0 0 0 2px var(--card);
 }
 
 .new-incident-button {
@@ -3500,6 +3475,21 @@ p {
   cursor: pointer;
 }
 
+.incident-map-marker span {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--card);
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 0 12px color-mix(in srgb, var(--amber) 18%, transparent), 0 10px 20px rgba(18, 19, 18, 0.24);
+}
+
+.incident-map-marker.critical span {
+  background: var(--red);
+  box-shadow: 0 0 0 14px color-mix(in srgb, var(--red) 18%, transparent), 0 10px 20px rgba(18, 19, 18, 0.24);
+}
+
 .flood-alert-rail {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -3971,67 +3961,6 @@ p {
   background: #f0f7fd;
 }
 
-/* ── Risk Prediction – checkbox filter panel ─────────────── */
-
-.risk-filter-panel {
-  margin-top: 8px;
-}
-
-.risk-filter-search {
-  display: block;
-  width: 100%;
-  max-width: 340px;
-  min-height: 38px;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--muted);
-  margin-bottom: 12px;
-  cursor: default;
-  font-size: 14px;
-}
-
-.risk-checkbox-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.risk-filter-group {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px 14px;
-  background: var(--panel);
-  margin: 0;
-}
-
-.risk-filter-group legend {
-  font-size: 12px;
-  font-weight: 850;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  padding: 0 4px;
-}
-
-.risk-filter-group label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.risk-filter-group input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--teal);
-  cursor: pointer;
-}
-
 /* AI Predictions panel – Expected Impact list */
 .ai-impact-list {
   padding-left: 18px;
@@ -4060,15 +3989,11 @@ p {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .risk-checkbox-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 600px) {
   .analytics-summary-grid,
-  .analytics-shelter-grid,
-  .risk-checkbox-grid {
+  .analytics-shelter-grid {
     grid-template-columns: 1fr;
   }
 }

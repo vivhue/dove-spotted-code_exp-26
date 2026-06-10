@@ -1,4 +1,5 @@
 const app = document.querySelector("#app");
+const OPS_BRAND_SUBTITLE = "AI Emergency Command Centre";
 
 const routes = {
   "": renderLanding,
@@ -9,6 +10,7 @@ const routes = {
   "#/signup/professional": renderProfessionalSignup,
   "#/login/public": renderPublicLogin,
   "#/signup/volunteer": renderVolunteerSignup,
+  "#/forgot-password": renderForgotPassword,
   "#/public-status": renderPublicEmergencyStatus,
   "#/dashboard": renderDashboard,
   "#/incident-simulator": renderIncidentSimulatorPage,
@@ -43,6 +45,17 @@ const DEFAULT_DASHBOARD_STATS = {
 };
 
 const DEFAULT_SIMULATION_BRIEFING = "Standby. Run a scenario to generate a rule-based operations briefing.";
+const PASSWORD_REQUIREMENTS_MESSAGE = "Password must contain at least 8 characters, 1 uppercase letter, 1 number, and 1 special character.";
+const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again later.";
+const PROFESSIONAL_AGENCY_DOMAINS = {
+  SCDF: ["scdf.gov.sg"],
+  SPF: ["spf.gov.sg"],
+  MOH: ["moh.gov.sg"],
+  NEA: ["nea.gov.sg"],
+  PUB: ["pub.gov.sg"],
+  LTA: ["lta.gov.sg"]
+};
+const PROFESSIONAL_TEST_DOMAINS = ["quickaid.test"];
 const DEFAULT_RESOURCE_SUMMARY = "No simulation is running. Resource demand summaries will appear here.";
 const DEFAULT_ALERTS = ["No active simulation alerts."];
 const DEFAULT_LIVE_ACTIVITY = [
@@ -120,13 +133,11 @@ function icon(name) {
     alert: '<path d="M10.3 3.4 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.4a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01" />',
     activity: '<path d="M3 12h4l2.2-7 4.1 14 2.2-7H21" />',
     barChart: '<path d="M3 3v18h18M7 16v-5M12 16v-9M17 16v-3" />',
-    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" />',
     close: '<path d="M18 6 6 18M6 6l12 12" />',
     droplet: '<path d="M12 3s6 6.3 6 11a6 6 0 0 1-12 0c0-4.7 6-11 6-11z" />',
     logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />',
     mapPin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0z" /><circle cx="12" cy="10" r="2.5" />',
     medical: '<path d="M8 6V4h8v2M6 8h12v12H6zM12 11v6M9 14h6" />',
-    settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.3 7A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1z" />',
     shield: '<path d="M12 3l8 3v6c0 5-3.3 8.2-8 9-4.7-.8-8-4-8-9V6l8-3z" />',
     truck: '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7zM7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4M18 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4" />',
   };
@@ -163,7 +174,7 @@ function header({ backHref = "", nav = false } = {}) {
         ${shieldIcon()}
         <span>
           <strong>AIECC</strong>
-          <small>QuickAid Emergency Coordination</small>
+          <small>${OPS_BRAND_SUBTITLE}</small>
         </span>
       </a>
       ${nav ? `
@@ -545,7 +556,7 @@ function renderProfessionalLogin() {
             <h1 id="professional-heading">Professional Login</h1>
             <p>Sign in with your authorised credentials</p>
           </div>
-          <form class="login-form" data-role="professional">
+          <form class="login-form" data-role="professional" novalidate>
             <label>Email<input name="email" type="email" placeholder="irname@example.com" autocomplete="email" required /></label>
             <label>Password
               <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required minlength="8" /></span>
@@ -554,6 +565,7 @@ function renderProfessionalLogin() {
             <button class="form-button" type="submit">Sign In</button>
             <div class="auth-support-links">
               <a href="#/signup/professional">Sign up for a professional account</a>
+              <a href="#/forgot-password">Forgot password?</a>
             </div>
             <p class="form-status" role="status"></p>
           </form>
@@ -575,7 +587,7 @@ function renderProfessionalSignup() {
             <h1 id="professional-signup-heading">Professional Sign Up</h1>
             <p>Register with your official work email. Your agency administrator will review the request.</p>
           </div>
-          <form class="login-form wide-auth-form" data-professional-signup>
+          <form class="login-form wide-auth-form" data-professional-signup novalidate>
             <div class="form-grid">
               <label>Full name
                 <input name="name" type="text" placeholder="Your full name" autocomplete="name" required maxlength="80" />
@@ -598,12 +610,13 @@ function renderProfessionalSignup() {
                 <input name="roleTitle" type="text" placeholder="Emergency Operations Officer" required maxlength="100" />
               </label>
               <label>Password
-                <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="At least 10 characters" autocomplete="new-password" required minlength="10" /></span>
+                <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8" /></span>
               </label>
               <label>Confirm password
-                <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password" required minlength="10" /></span>
+                <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password" required minlength="8" /></span>
               </label>
             </div>
+            <p class="note">${icon("info")} ${PASSWORD_REQUIREMENTS_MESSAGE}</p>
             <p class="note">${icon("info")} An official email domain is required, but it does not grant access automatically. An administrator must approve the account.</p>
             <button class="form-button" type="submit">Submit Registration</button>
             <p class="signup-line">Already approved? <a href="#/login/professional">Sign in</a></p>
@@ -630,9 +643,69 @@ function normalizeEmailAddress(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function isMongoUnavailable(result) {
-  const errorText = String(result?.error || "").toLowerCase();
-  return errorText.includes("mongodb") && (errorText.includes("unavailable") || errorText.includes("connected"));
+function validEmailAddress(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function strongPassword(value) {
+  const password = String(value || "");
+  return password.length >= 8 && /[A-Z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9]/.test(password);
+}
+
+function emailDomain(value) {
+  return normalizeEmailAddress(value).split("@")[1] || "";
+}
+
+function domainMatches(domain, allowedDomain) {
+  return domain === allowedDomain || domain.endsWith(`.${allowedDomain}`);
+}
+
+function professionalEmailAllowed(email, agency) {
+  const domain = emailDomain(email);
+  const allowed = PROFESSIONAL_AGENCY_DOMAINS[String(agency || "").trim().toUpperCase()] || [];
+  return [...allowed, ...PROFESSIONAL_TEST_DOMAINS].some((allowedDomain) => domainMatches(domain, allowedDomain));
+}
+
+function personalEmailAllowed(email) {
+  const domain = emailDomain(email);
+  if (!domain) return false;
+  if (domain === "gov.sg" || domain.endsWith(".gov.sg")) return false;
+  const professionalDomains = Object.values(PROFESSIONAL_AGENCY_DOMAINS).flat();
+  return ![...professionalDomains, ...PROFESSIONAL_TEST_DOMAINS].some((allowedDomain) => domainMatches(domain, allowedDomain));
+}
+
+function showFormError(status, message) {
+  status.textContent = message;
+  status.className = "form-status error";
+}
+
+function requiredFieldsPresent(data, fields) {
+  return fields.every((field) => {
+    const value = data[field];
+    if (typeof value === "boolean") return value === true;
+    return String(value || "").trim() !== "";
+  });
+}
+
+function validateSignupData(type, data) {
+  if (type === "professional") {
+    if (!requiredFieldsPresent(data, ["name", "email", "agency", "roleTitle", "password", "confirmPassword"])) return "Please fill in all required fields.";
+    if (!validEmailAddress(data.email)) return "Please enter a valid email address.";
+    if (!professionalEmailAllowed(data.email, data.agency)) return "Please use an approved professional email domain.";
+  } else {
+    if (!requiredFieldsPresent(data, ["name", "email", "phone", "password", "confirmPassword", "availability", "acceptTerms"])) return "Please fill in all required fields.";
+    if (!validEmailAddress(data.email)) return "Please enter a valid email address.";
+    if (!personalEmailAllowed(data.email)) return "Please use a valid personal email address.";
+  }
+  if (!strongPassword(data.password)) return PASSWORD_REQUIREMENTS_MESSAGE;
+  if (data.password !== data.confirmPassword) return "Passwords do not match.";
+  return "";
+}
+
+function validateLoginData(data) {
+  if (!requiredFieldsPresent(data, ["email", "password"])) return "Please fill in all required fields.";
+  if (!validEmailAddress(data.email)) return "Please enter a valid email address.";
+  return "";
 }
 
 async function submitProfessionalSignup(event) {
@@ -641,6 +714,11 @@ async function submitProfessionalSignup(event) {
   const status = form.querySelector(".form-status");
   const button = form.querySelector('button[type="submit"]');
   const data = Object.fromEntries(new FormData(form).entries());
+  const validationError = validateSignupData("professional", data);
+  if (validationError) {
+    showFormError(status, validationError);
+    return;
+  }
 
   status.textContent = "Submitting your registration...";
   status.className = "form-status";
@@ -658,11 +736,17 @@ async function submitProfessionalSignup(event) {
       status.classList.add("error");
       return;
     }
+    if (result.session) localStorage.setItem("quickaid-session", JSON.stringify(result.session));
     form.reset();
     status.textContent = result.message;
     status.classList.add("success");
+    if (result.redirectTo) {
+      window.setTimeout(() => {
+        window.location.hash = "#/dashboard";
+      }, 650);
+    }
   } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
+    status.textContent = GENERIC_ERROR_MESSAGE;
     status.classList.add("error");
   } finally {
     button.disabled = false;
@@ -679,13 +763,14 @@ function renderPublicLogin() {
             <h1 id="public-heading">Public Login</h1>
             <p>Sign in to report incidents, receive alerts, or offer support</p>
           </div>
-          <form class="login-form" data-role="public">
-            <label>Email<input name="email" type="email" placeholder="irname@example.com" autocomplete="email" /></label>
+          <form class="login-form" data-role="public" novalidate>
+            <label>Email<input name="email" type="email" placeholder="irname@example.com" autocomplete="email" required /></label>
             <label>Password
-              <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" minlength="6" /></span>
+              <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required /></span>
             </label>
             <button class="form-button" type="submit">Sign In With Email</button>
             <p class="signup-line">Volunteer accounts sign in here too. <a href="#/signup/volunteer">Create a volunteer account</a></p>
+            <p class="signup-line"><a href="#/forgot-password">Forgot password?</a></p>
             <p class="form-status" role="status"></p>
           </form>
         </section>
@@ -693,6 +778,72 @@ function renderPublicLogin() {
     </div>
   `;
   bindLoginForm();
+}
+
+function renderForgotPassword() {
+  app.innerHTML = `
+    <div class="page auth-page">
+      ${header({ backHref: "#/login" })}
+      <main class="center-stage">
+        <section class="login-panel" aria-labelledby="forgot-password-heading">
+          <div class="auth-heading">
+            <h1 id="forgot-password-heading">Forgot Password</h1>
+            <p>Enter your email to request password reset instructions.</p>
+          </div>
+          <form class="login-form" data-forgot-password novalidate>
+            <label>Email<input name="email" type="email" placeholder="name@example.com" autocomplete="email" required /></label>
+            <button class="form-button" type="submit">Request Password Reset</button>
+            <p class="signup-line"><a href="#/login">Back to sign in</a></p>
+            <p class="form-status" role="status"></p>
+          </form>
+        </section>
+      </main>
+    </div>
+  `;
+
+  document.querySelector("[data-forgot-password]").addEventListener("submit", submitForgotPassword);
+}
+
+async function submitForgotPassword(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = form.querySelector(".form-status");
+  const button = form.querySelector('button[type="submit"]');
+  const data = Object.fromEntries(new FormData(form).entries());
+
+  if (!requiredFieldsPresent(data, ["email"])) {
+    showFormError(status, "Please fill in all required fields.");
+    return;
+  }
+  if (!validEmailAddress(data.email)) {
+    showFormError(status, "Please enter a valid email address.");
+    return;
+  }
+
+  status.textContent = "Requesting password reset...";
+  status.className = "form-status";
+  button.disabled = true;
+
+  try {
+    const response = await fetch("/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      status.textContent = formatAuthError(result, GENERIC_ERROR_MESSAGE);
+      status.classList.add("error");
+      return;
+    }
+    status.textContent = result.message;
+    status.classList.add("success");
+  } catch (error) {
+    status.textContent = GENERIC_ERROR_MESSAGE;
+    status.classList.add("error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderVolunteerSignup() {
@@ -706,7 +857,7 @@ function renderVolunteerSignup() {
             <h1 id="volunteer-heading">Volunteer Sign Up</h1>
             <p>Create an account to offer support and receive local emergency alerts</p>
           </div>
-          <form class="login-form volunteer-signup-form" data-volunteer-signup>
+          <form class="login-form volunteer-signup-form" data-volunteer-signup novalidate>
             <div class="form-grid">
               <label>Full name
                 <input name="name" type="text" placeholder="Your full name" autocomplete="name" required maxlength="80" />
@@ -727,6 +878,7 @@ function renderVolunteerSignup() {
                 <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password" required minlength="8" /></span>
               </label>
             </div>
+            <p class="note">${icon("info")} ${PASSWORD_REQUIREMENTS_MESSAGE}</p>
             <label>Availability
               <select name="availability" required>
                 <option value="">Select availability</option>
@@ -766,6 +918,11 @@ async function submitVolunteerSignup(event) {
     .split(",")
     .map((skill) => skill.trim())
     .filter(Boolean);
+  const validationError = validateSignupData("volunteer", data);
+  if (validationError) {
+    showFormError(status, validationError);
+    return;
+  }
 
   status.textContent = "Creating your volunteer account...";
   status.className = "form-status";
@@ -779,11 +936,6 @@ async function submitVolunteerSignup(event) {
     });
     const result = await response.json();
     if (!response.ok) {
-      if (response.status === 503 && isMongoUnavailable(result)) {
-        status.textContent = "MongoDB is not connected, so this account was not saved. Check the shared MONGO_URI, restart the server, then sign up again.";
-        status.classList.add("error");
-        return;
-      }
       status.textContent = formatAuthError(result, "Unable to create your account.");
       status.classList.add("error");
       return;
@@ -796,7 +948,7 @@ async function submitVolunteerSignup(event) {
       window.location.hash = "#/dashboard";
     }, 650);
   } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
+    status.textContent = GENERIC_ERROR_MESSAGE;
     status.classList.add("error");
   } finally {
     button.disabled = false;
@@ -817,6 +969,11 @@ function bindLoginForm() {
 async function submitLogin(role, payload) {
   const status = document.querySelector(".form-status");
   const endpoint = role === "professional" ? "/api/auth/professional" : "/api/auth/public";
+  const validationError = validateLoginData(payload);
+  if (validationError) {
+    showFormError(status, validationError);
+    return;
+  }
   status.textContent = "Signing in...";
   status.className = "form-status";
 
@@ -828,11 +985,6 @@ async function submitLogin(role, payload) {
     });
     const result = await response.json();
     if (!response.ok) {
-      if (role === "public" && response.status === 503 && isMongoUnavailable(result)) {
-        status.textContent = "MongoDB is not connected, so saved accounts cannot be checked. Check the shared MONGO_URI and restart the server.";
-        status.classList.add("error");
-        return;
-      }
       status.textContent = formatAuthError(result, "Unable to sign in.");
       status.classList.add("error");
       return;
@@ -844,27 +996,14 @@ async function submitLogin(role, payload) {
       window.location.hash = "#/dashboard";
     }, 450);
   } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
+    status.textContent = GENERIC_ERROR_MESSAGE;
     status.classList.add("error");
   }
 }
 
 async function renderDashboard() {
-  let session;
-  try {
-    const response = await fetch("/api/auth/session");
-    const result = await response.json();
-    if (!response.ok) {
-      localStorage.removeItem("quickaid-session");
-      window.location.hash = "#/login";
-      return;
-    }
-    session = result.session;
-    localStorage.setItem("quickaid-session", JSON.stringify(session));
-  } catch (error) {
-    app.innerHTML = `<p class="page-load-error">Unable to verify your session. Check that QuickAid is running.</p>`;
-    return;
-  }
+  const session = await getOpsSession();
+  if (!session) return;
   const isProfessional = session?.role === "professional";
   emergencySpacesLoaded = false;
   emergencySpacesState = [];
@@ -902,12 +1041,11 @@ async function renderDashboard() {
             <img class="command-brand-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
             <div>
               <h1>AIECC</h1>
+              <p>${OPS_BRAND_SUBTITLE}</p>
             </div>
           </div>
           <div class="ops-actions command-header-actions">
             <a class="new-incident-button" href="#/incident-simulator">${icon("alert")} New Incident</a>
-            <button class="command-icon-button" type="button" aria-label="Notifications">${icon("bell")}<span></span></button>
-            <button class="command-icon-button" type="button" aria-label="Settings">${icon("settings")}</button>
           </div>
         </header>
 
@@ -915,8 +1053,8 @@ async function renderDashboard() {
         <aside class="ops-navigation" data-ops-menu aria-hidden="true" aria-label="Dashboard navigation">
           <div class="ops-navigation-header">
             <div>
-              <strong>AIECC Operations</strong>
-              <span>Professional workspace</span>
+              <strong>AIECC</strong>
+              <span>${OPS_BRAND_SUBTITLE}</span>
             </div>
             <button class="ops-menu-close" type="button" data-close-ops-menu aria-label="Close dashboard navigation">${icon("close")}</button>
           </div>
@@ -982,7 +1120,7 @@ async function renderDashboard() {
               <div class="command-profile-row">
                 <div class="command-avatar">${icon("users")}</div>
                 <div>
-                  <strong>${isProfessional ? "Commander J. Chen" : "QuickAid User"}</strong>
+                  <strong>${escapeHtml(session?.name || session?.email || "QuickAid User")}</strong>
                   <span>${isProfessional ? "Incident Commander" : "Public Operations View"}</span>
                 </div>
               </div>
@@ -1064,7 +1202,6 @@ async function renderIncidentSimulatorPage() {
 
   app.innerHTML = opsShellMarkup({
     active: "simulator",
-    subtitle: "Scenario operations",
     session,
     content: `
       <section class="simulation-suite-section ops-standalone-section" data-simulation-section>
@@ -1118,7 +1255,6 @@ async function renderEmergencySpacesPage() {
 
   app.innerHTML = opsShellMarkup({
     active: "spaces",
-    subtitle: "Emergency resources",
     session,
     content: `
       <section class="emergency-spaces-panel-section ops-standalone-section" data-emergency-spaces-section>
@@ -1208,7 +1344,6 @@ async function renderVolunteerDispatchPage() {
 
   app.innerHTML = opsShellMarkup({
     active: "dispatch",
-    subtitle: "Volunteer operations",
     session,
     content: `
       <section class="volunteer-dispatch-section ops-standalone-section" data-volunteer-dispatch-section>
@@ -1216,7 +1351,7 @@ async function renderVolunteerDispatchPage() {
           <div>
             <p class="eyebrow">Volunteer operations</p>
             <h2>Volunteer Dispatch Workflow</h2>
-            <p class="volunteer-dispatch-note">Dispatch uses seed volunteer data and simulated notifications for now. Profile updates, assignments, and status changes happen instantly without Telegram or MongoDB persistence.</p>
+            <p class="volunteer-dispatch-note">Dispatch uses seed volunteer data and simulated notifications for now. Profile updates, assignments, and status changes happen instantly.</p>
           </div>
         </div>
         <div data-volunteer-dispatch-content></div>
@@ -1235,15 +1370,25 @@ function formatAuthError(result, fallback) {
 }
 
 async function getOpsSession({ redirect = true } = {}) {
+  const storedSession = readStoredSession();
   try {
-    const response = await fetch("/api/auth/session");
+    const response = await fetch("/api/auth/session", { credentials: "same-origin" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Unable to verify session.");
     localStorage.setItem("quickaid-session", JSON.stringify(result.session));
     return result.session;
   } catch (error) {
-    localStorage.removeItem("quickaid-session");
+    if (storedSession) return storedSession;
     if (redirect) window.location.hash = "#/login";
+    return null;
+  }
+}
+
+function readStoredSession() {
+  try {
+    return JSON.parse(localStorage.getItem("quickaid-session") || "null");
+  } catch (error) {
+    localStorage.removeItem("quickaid-session");
     return null;
   }
 }
@@ -1265,8 +1410,8 @@ function opsNavigationMarkup(active = "overview") {
       <div class="ops-navigation-header">
         <img class="ops-navigation-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
         <div>
-          <strong>AIECC Operations</strong>
-          <span>Professional workspace</span>
+          <strong>AIECC</strong>
+          <span>${OPS_BRAND_SUBTITLE}</span>
         </div>
         <button class="ops-menu-close" type="button" data-close-ops-menu aria-label="Close dashboard navigation">${icon("close")}</button>
       </div>
@@ -1282,7 +1427,7 @@ function opsNavigationMarkup(active = "overview") {
   `;
 }
 
-function opsShellMarkup({ active = "overview", subtitle = "Real-time emergency overview", session = null, content = "" } = {}) {
+function opsShellMarkup({ active = "overview", session = null, content = "" } = {}) {
   const isSignedIn = Boolean(session);
   return `
     <div class="page dashboard-page">
@@ -1296,7 +1441,7 @@ function opsShellMarkup({ active = "overview", subtitle = "Real-time emergency o
               <img class="ops-title-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
               <h1>AIECC</h1>
             </div>
-            <p>${subtitle}</p>
+            <p>${OPS_BRAND_SUBTITLE}</p>
           </div>
           <div class="ops-actions">
             <span class="ops-live">${icon("activity")} Live</span>
@@ -1348,7 +1493,7 @@ function bindOpsShell() {
   document.addEventListener("keydown", opsMenuKeydownHandler);
 
   document.querySelector("[data-auth-action]")?.addEventListener("click", async () => {
-    const session = JSON.parse(localStorage.getItem("quickaid-session") || "null");
+    const session = readStoredSession();
     if (!session) {
       window.location.hash = "#/login";
       return;
@@ -2086,16 +2231,16 @@ function bindProfessionalVolunteerDispatch() {
     volunteerDispatchState.selectedIncidentId = event.currentTarget.value;
     volunteerDispatchState.smartMatchActive = false;
     volunteerDispatchState.smartMatchScores = new Map();
-    renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+    renderVolunteerDispatchSection(readStoredSession());
   });
   document.querySelector("[data-filter-skill]")?.addEventListener("input", (event) => {
     volunteerDispatchState.filters.skill = event.currentTarget.value.trim();
-    renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+    renderVolunteerDispatchSection(readStoredSession());
   });
   ["zone", "availability", "status"].forEach((filterName) => {
     document.querySelector(`[data-filter-${filterName}]`)?.addEventListener("change", (event) => {
       volunteerDispatchState.filters[filterName] = event.currentTarget.value;
-      renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+      renderVolunteerDispatchSection(readStoredSession());
     });
   });
   document.querySelector("[data-smart-match]")?.addEventListener("click", () => {
@@ -2107,19 +2252,19 @@ function bindProfessionalVolunteerDispatch() {
       });
       volunteerDispatchState.smartMatchActive = true;
     }
-    renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+    renderVolunteerDispatchSection(readStoredSession());
   });
   document.querySelector("[data-reset-volunteer-filters]")?.addEventListener("click", () => {
     volunteerDispatchState.filters = { skill: "", zone: "", availability: "", status: "" };
     volunteerDispatchState.smartMatchActive = false;
     volunteerDispatchState.smartMatchScores = new Map();
-    renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+    renderVolunteerDispatchSection(readStoredSession());
   });
   document.querySelectorAll("[data-deploy-volunteer]").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
         await deployVolunteerToIncident(Number(button.dataset.deployVolunteer), volunteerDispatchState.selectedIncidentId);
-        renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+        renderVolunteerDispatchSection(readStoredSession());
       } catch (error) {
         const content = document.querySelector("[data-volunteer-dispatch-content]");
         if (content) content.prepend(Object.assign(document.createElement("p"), { className: "dispatch-banner error", textContent: error.message }));
@@ -2133,7 +2278,7 @@ function bindProfessionalVolunteerDispatch() {
       if (!select) return;
       try {
         await updateVolunteerWorkflowStatus(volunteerId, select.value);
-        renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+        renderVolunteerDispatchSection(readStoredSession());
       } catch (error) {
         const content = document.querySelector("[data-volunteer-dispatch-content]");
         if (content) content.prepend(Object.assign(document.createElement("p"), { className: "dispatch-banner error", textContent: error.message }));
@@ -2451,12 +2596,14 @@ async function initOneMapDashboard() {
     const floodLayer = L.layerGroup().addTo(map);
     const dengueLayer = L.layerGroup().addTo(map);
 
-    const [floodResponse, dengueResponse] = await Promise.all([
+    const [floodResponse, dengueResponse, incidentsResponse] = await Promise.all([
       fetch("/api/flood-alerts"),
-      fetch("/api/dengue-clusters")
+      fetch("/api/dengue-clusters"),
+      fetch("/api/incidents").catch(() => null)
     ]);
     const floodPayload = await floodResponse.json();
     const denguePayload = await dengueResponse.json();
+    const incidentsPayload = incidentsResponse?.ok ? await incidentsResponse.json() : { incidents: [] };
     if (!floodResponse.ok) throw new Error(floodPayload.error || "Unable to load flood alerts.");
     if (!dengueResponse.ok) throw new Error(denguePayload.error || "Unable to load dengue clusters.");
 
@@ -2490,6 +2637,22 @@ async function initOneMapDashboard() {
         .bindPopup(denguePopup(info))
         .addTo(dengueLayer);
       if (layer.getBounds) bounds.extend(layer.getBounds());
+    });
+
+    (incidentsPayload.incidents || []).forEach((incident) => {
+      const lat = Number(incident.lat);
+      const lng = Number(incident.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const label = `
+        <div class="flood-popup">
+          <h3>${escapeHtml(incident.type || "Incident")} · ${escapeHtml(incident.severity || "Reported")}</h3>
+          <p>${escapeHtml(incident.areaDesc || incident.location || "Reported incident")}</p>
+          ${incident.note ? `<p class="flood-popup-instruction">${escapeHtml(incident.note)}</p>` : ""}
+          <p class="flood-popup-time">${incident.createdAt ? `Reported ${formatDateTime(incident.createdAt)}` : "Stored in MongoDB"}</p>
+        </div>
+      `;
+      addIncidentMarker(map, [lat, lng], incident.severity === "High" ? "critical" : "incident", label);
+      bounds.extend([lat, lng]);
     });
 
     if (bounds.isValid()) {
@@ -2546,7 +2709,6 @@ async function renderFloodMap() {
   const session = await getOpsSession({ redirect: false });
   app.innerHTML = opsShellMarkup({
     active: "flood",
-    subtitle: "Live flood and dengue monitoring",
     session,
     content: `
       <section class="flood-map-shell ops-feature-shell">
@@ -2775,7 +2937,6 @@ async function renderEvacuationRouting() {
   const session = await getOpsSession({ redirect: false });
   app.innerHTML = opsShellMarkup({
     active: "evacuation",
-    subtitle: "Dynamic evacuation routing",
     session,
     content: `
       <section class="flood-map-shell ops-feature-shell">
@@ -3286,7 +3447,6 @@ async function renderRiskPrediction() {
   const session = await getOpsSession({ redirect: false });
   app.innerHTML = opsShellMarkup({
     active: "risk",
-    subtitle: "Risk prediction",
     session,
     content: `
       <section class="risk-shell ops-feature-shell">
@@ -3299,36 +3459,6 @@ async function renderRiskPrediction() {
             <button id="tab-api" class="secondary-button compact">Live API</button>
             <button id="tab-db" class="secondary-button compact">DB Reports</button>
             <button id="btn-report" class="secondary-button compact">Report Incident</button>
-          </div>
-          <div class="risk-filter-panel">
-            <input class="risk-filter-search" placeholder="Select Filters..." readonly aria-label="Filter selector hint" />
-            <div class="risk-checkbox-grid">
-              <fieldset class="risk-filter-group">
-                <legend>Risk Type</legend>
-                <label><input type="checkbox" name="riskType" value="Flood" checked /> Flood</label>
-                <label><input type="checkbox" name="riskType" value="Disease" /> Disease</label>
-                <label><input type="checkbox" name="riskType" value="Fire" /> Fire</label>
-              </fieldset>
-              <fieldset class="risk-filter-group">
-                <legend>Region</legend>
-                <label><input type="checkbox" name="region" value="Jurong" checked /> Jurong</label>
-                <label><input type="checkbox" name="region" value="Tampines" /> Tampines</label>
-                <label><input type="checkbox" name="region" value="Central" /> Central</label>
-              </fieldset>
-              <fieldset class="risk-filter-group">
-                <legend>Severity</legend>
-                <label><input type="checkbox" name="severity" value="Critical" /> Critical</label>
-                <label><input type="checkbox" name="severity" value="High" checked /> High</label>
-                <label><input type="checkbox" name="severity" value="Medium" /> Medium</label>
-              </fieldset>
-              <fieldset class="risk-filter-group">
-                <legend>Time Prediction</legend>
-                <label><input type="checkbox" name="window" value="1" /> Next 1 hour</label>
-                <label><input type="checkbox" name="window" value="6" checked /> Next 6 hours</label>
-                <label><input type="checkbox" name="window" value="24" /> Next 24 hours</label>
-              </fieldset>
-            </div>
-            <button id="filter-apply" class="secondary-button compact" style="margin-top:10px">Apply Filters</button>
           </div>
         </div>
 
@@ -3626,85 +3756,6 @@ async function renderRiskPrediction() {
       });
     });
 
-    // Apply filter button
-    document.getElementById('filter-apply').addEventListener('click', async () => {
-      const region = [...document.querySelectorAll('input[name="region"]:checked')].map(cb => cb.value)[0] || 'all';
-      const wnd = [...document.querySelectorAll('input[name="window"]:checked')].map(cb => cb.value)[0] || '4';
-      const sev = [...document.querySelectorAll('input[name="severity"]:checked')].map(cb => cb.value)[0] || 'all';
-      const newPayload = await loadHeatmap({ region, window: wnd }, currentSource);
-      layer.clearLayers();
-      (newPayload.features || []).forEach((ff) => {
-        const [lng2, lat2] = ff.geometry.coordinates;
-        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
-        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
-        m2.on('click', async () => {
-          const panel = document.getElementById('ai-prediction');
-          if (currentSource === 'db') {
-            const displayName = getZoneDisplayName(ff);
-            const zoneId = getZoneIdentifier(ff);
-            const inc = ff.properties.incident || {};
-            panel.innerHTML = `
-              <h3>${displayName}</h3>
-              <div class="incident-details">
-                <p><strong>Reporter:</strong> ${inc.reporter || 'anonymous'} (${inc.reporterRole || 'public'})</p>
-                <p><strong>Type:</strong> ${inc.type || 'report'}</p>
-                <p><strong>Severity:</strong> ${inc.severity || ff.properties.severity}</p>
-                <p><strong>Value:</strong> ${inc.value ?? '—'}</p>
-                <p><strong>Location:</strong> ${inc.location || inc.areaDesc || '—'}</p>
-                ${inc.note ? `<p><strong>Note:</strong> ${inc.note}</p>` : ''}
-                <p><strong>Status:</strong> ${inc.status || 'open'}</p>
-              </div>
-              <hr />
-              <div class="ai-section"><p>Loading AI prediction…</p></div>
-            `;
-            try {
-              const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zoneId, hours: wnd }) });
-              const p2 = await pResp2.json();
-              const aiSection = panel.querySelector('.ai-section');
-              if (aiSection) {
-                aiSection.innerHTML = `
-                  <h4>AI Predictions</h4>
-                  <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
-                  <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
-                  <h5>Recommendations</h5>
-                  <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
-                  <h5>Why</h5>
-                  <p class="ai-explanation">${p2.explanation || ''}</p>
-                `;
-              }
-            } catch (e) {
-              const aiSection = panel.querySelector('.ai-section');
-              if (aiSection) aiSection.textContent = 'Prediction failed.';
-            }
-          } else {
-            const displayName = getZoneDisplayName(ff);
-            panel.innerHTML = `<p>Loading prediction for <strong>${displayName}</strong>…</p>`;
-            try {
-              const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: displayName, hours: wnd }) });
-              const p2 = await pResp2.json();
-              panel.innerHTML = `
-                <h3>${displayName}</h3>
-                <p><strong>Description:</strong> ${ff.properties.description || ''}</p>
-                <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
-                <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
-                <h4>Expected Impact</h4>
-                <ul class="ai-impact-list">
-                  <li>Road congestion</li>
-                  <li>Shelter demand increase</li>
-                  <li>Hospital occupancy strain</li>
-                </ul>
-                <h4>Recommendations</h4>
-                <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
-                <h5>Why</h5>
-                <p class="ai-explanation">${p2.explanation || ''}</p>
-              `;
-            } catch (e) {
-              panel.textContent = 'Prediction failed.';
-            }
-          }
-        });
-      });
-    });
   } catch (error) {
     const el = document.getElementById('risk-map');
     if (el) el.innerHTML = '<span>Unable to load map.</span>';
@@ -3782,7 +3833,6 @@ async function renderAnalytics() {
   const session = await getOpsSession({ redirect: false });
   app.innerHTML = opsShellMarkup({
     active: "analytics",
-    subtitle: "Strategic analytics & insights",
     session,
     content: `
       <section class="analytics-shell ops-standalone-section">

@@ -50,15 +50,14 @@ frontend/
 Demo login rules:
 
 - Professional login needs an account created with a supported official agency email and its password.
-- Public login needs a valid email and password with 6 or more characters, or use the Google demo button.
+- Public login needs a saved email and password.
 
 Both login types use server-held sessions in an HttpOnly, SameSite cookie.
-Repeated failed passwords are rate limited, and an account is temporarily
-locked for 15 minutes after five failed attempts.
+After 3 failed password attempts, the account is temporarily locked for 1 minute.
 
 MongoDB setup:
 
-Add your Atlas connection string to `.env`:
+Copy `.env.example` to `.env`, then add your shared Atlas connection string:
 
 ```text
 MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/quickaid?retryWrites=true&w=majority
@@ -150,60 +149,11 @@ Password security:
 - Passwords are hashed with `bcrypt.hash()`.
 - Login checks use `bcrypt.compare()`.
 - Plain-text passwords are never stored in MongoDB.
-- Original passwords are never displayed, sent through Telegram, or returned by the API.
+- Original passwords are never displayed or returned by the API.
 - Sessions expire after eight hours and are invalidated when the user signs out.
 - Login attempts are limited per account and client address.
-- Five incorrect passwords temporarily lock the account for 15 minutes.
-- Approved professionals can reset a forgotten password at
-  `http://127.0.0.1:3000/#/reset/professional`.
-- Reset codes expire after five minutes, are stored as hashes, and are sent
-  only to the Telegram chat already linked to that user's account.
-
-Telegram OTP:
-
-- Each professional account must link its own Telegram chat before requesting
-  an OTP.
-- The user clicks `Connect Telegram`, starts the bot, and the backend saves
-  that user's Telegram `chat.id` to only their MongoDB record.
-- There is no shared `TELEGRAM_CHAT_ID` fallback. If MongoDB is unavailable or
-  a professional has not linked Telegram, no OTP is generated or sent.
-- Seeded team accounts start with no Telegram chat linked.
-- Local development uses Telegram polling, so linking works without ngrok.
-- Run only one shared polling server for the bot at a time.
-
-Telegram connect flow:
-
-1. For local development, add these values to `.env`:
-
-```text
-TELEGRAM_BOT_USERNAME=your_bot_username_without_at
-TELEGRAM_POLLING=true
-```
-
-2. Start QuickAid:
-
-```bash
-nodemon backend/server.js
-```
-
-3. On Professional Login, enter email/password and click `Connect Telegram`.
-   Telegram opens. Tap `Start`, and QuickAid saves the user's `telegramChatId`
-   to MongoDB.
-
-After that, `Send 6-digit code` sends OTPs to that user's linked Telegram chat.
-
-For a deployed server, set `TELEGRAM_POLLING=false`, configure
-`PUBLIC_BASE_URL` and `TELEGRAM_WEBHOOK_SECRET`, then run
-`npm run telegram:webhook`.
-
-Check Telegram ownership and webhook health:
-
-```bash
-npm run telegram:check
-```
-
-This masks chat IDs, reports duplicate ownership, and shows whether Telegram
-currently has a webhook URL configured.
+- Three incorrect passwords temporarily lock the account for 1 minute.
+- Users can request a password reset from the Forgot Password page.
 
 Environment variables for Risk & Analytics (optional for demo):
 
