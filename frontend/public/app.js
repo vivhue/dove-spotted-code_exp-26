@@ -8,6 +8,7 @@ const routes = {
   "#/signup/professional": renderProfessionalSignup,
   "#/login/public": renderPublicLogin,
   "#/signup/volunteer": renderVolunteerSignup,
+  "#/public-status": renderPublicEmergencyStatus,
   "#/dashboard": renderDashboard,
   "#/flood-map": renderFloodMap,
   "#/evacuation-routing": renderEvacuationRouting,
@@ -125,23 +126,13 @@ function header({ backHref = "", nav = false } = {}) {
           <a href="#about">About</a>
           <a href="#features">Features</a>
           <a href="#contact">Contact</a>
-          <a class="nav-live-link" href="#/dashboard"><span></span> Live Dashboard</a>
+          <a class="nav-live-link" href="#/public-status"><span></span> Live Status</a>
         </nav>
       ` : `
         <a class="back-link" href="${backHref || "#/"}">${icon("arrowLeft")} Back</a>
       `}
     </header>
   `;
-}
-
-function dashboardSimulationAction() {
-  const template = document.querySelector("#dashboard-simulation-action");
-  return template?.innerHTML.trim() || `<button class="secondary-button compact" type="button" data-open-simulator>Incident Simulator</button>`;
-}
-
-function dashboardEmergencySpacesAction() {
-  const template = document.querySelector("#dashboard-emergency-spaces-action");
-  return template?.innerHTML.trim() || `<button class="secondary-button compact" type="button" data-open-emergency-spaces>Emergency Spaces</button>`;
 }
 
 function renderLanding() {
@@ -159,7 +150,7 @@ function renderLanding() {
             <h1>Helping Singapore respond faster during crisis</h1>
             <p class="hero-summary">A unified operational coordination platform powered by AI for real-time emergency management and resource optimisation.</p>
             <div class="hero-actions">
-              <a class="primary-button status-button" href="#/dashboard">${icon("activity")} Live emergency status ${icon("arrowRight")}</a>
+              <a class="primary-button status-button" href="#/public-status">${icon("activity")} Live emergency status ${icon("arrowRight")}</a>
               <a class="secondary-button sign-in-button" href="#/login">Sign in</a>
             </div>
             <p class="access-note">For emergency professionals, residents, and volunteers.</p>
@@ -216,22 +207,192 @@ function renderLanding() {
           </div>
         </section>
 
-        <section class="contact-band" id="contact">
-          <div>
-            <p class="eyebrow">Coordination desk</p>
-            <h2>Connect agencies, responders, and volunteers in one shared view.</h2>
+      </main>
+    </div>
+  `;
+}
+
+function renderPublicEmergencyStatus() {
+  app.innerHTML = `
+    <div class="page public-status-page">
+      <header class="public-status-header">
+        <a class="brand" href="#/">
+          ${shieldIcon()}
+          <span>
+            <strong>QuickAid</strong>
+            <small>Public emergency status</small>
+          </span>
+        </a>
+        <nav class="public-status-actions" aria-label="Public status navigation">
+          <a class="secondary-button compact" href="#/">${icon("arrowLeft")} Back</a>
+          <a class="secondary-button compact" href="#/login">Sign in ${icon("arrowRight")}</a>
+        </nav>
+      </header>
+
+      <main class="public-status-main">
+        <section class="public-status-hero" aria-labelledby="public-status-heading">
+          <div class="public-status-copy">
+            <p class="public-alert-pill" data-public-alert-pill><span></span> Loading live alert</p>
+            <h1 id="public-status-heading" data-public-status-heading>Checking live emergency status</h1>
+            <p class="public-status-summary" data-public-status-summary>Fetching the latest public advisory...</p>
           </div>
-          <div class="contact-action">
-            <a class="access-button" href="#/login">
-              Choose your role
-              ${icon("arrowRight")}
-            </a>
-            <span>Professional or public access</span>
-          </div>
+
+          <aside class="public-status-panel" aria-label="Public emergency details">
+            <section class="public-instruction-card" aria-label="What you should do now">
+              <h2>What you should do now</h2>
+              <div data-public-instructions>
+                <p>Stay clear of affected areas.</p>
+                <p>Follow official instructions from emergency responders.</p>
+              </div>
+            </section>
+
+            <div class="public-status-buttons">
+              <a class="primary-button public-map-button" href="#/flood-map">${icon("mapPin")} View live flood map</a>
+              <a class="secondary-button public-guidance-button" href="https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/civil-defence-emergency--handbook---interactive-tools" target="_blank" rel="noopener noreferrer" data-public-guidance-link>${icon("arrowRight")} <span data-public-guidance-label>SCDF emergency guidance</span></a>
+            </div>
+
+            <div class="public-status-stats" aria-label="Emergency status summary">
+              <article>
+                <span>Overall status</span>
+                <strong data-public-overall-status>Loading</strong>
+              </article>
+              <article>
+                <span>Last updated</span>
+                <strong data-public-last-updated>—</strong>
+              </article>
+              <article>
+                <span>Responders</span>
+                <strong data-public-responders>Monitoring</strong>
+              </article>
+            </div>
+
+            <footer class="public-status-footer">
+              <span>Public view · No sign in required</span>
+              <span data-public-refresh-note>Auto-refreshes every 2 min</span>
+            </footer>
+          </aside>
         </section>
       </main>
     </div>
   `;
+
+  refreshPublicEmergencyStatus();
+  publicStatusTimer = window.setInterval(refreshPublicEmergencyStatus, 120_000);
+}
+
+function publicGuidanceFor(text) {
+  const normalized = String(text || "").toLowerCase();
+  if (normalized.includes("fire")) {
+    return {
+      label: "SCDF fire safety advisories",
+      href: "https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/fire-safety-and-emergency-advisories"
+    };
+  }
+  if (normalized.includes("flood") || normalized.includes("rain")) {
+    return {
+      label: "SCDF emergency handbook",
+      href: "https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/civil-defence-emergency--handbook---interactive-tools"
+    };
+  }
+  return {
+    label: "SCDF emergency guidance",
+    href: "https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/civil-defence-emergency--handbook---interactive-tools"
+  };
+}
+
+function publicInstructionLines(reading) {
+  if (reading?.instruction) {
+    return String(reading.instruction)
+      .split(/[.;]\s+/)
+      .map((line) => line.replace(/[.;]\s*$/, "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+  }
+
+  const eventText = `${reading?.event || ""} ${reading?.headline || ""}`.toLowerCase();
+  if (eventText.includes("flood")) {
+    return [
+      "Avoid affected roads and low-lying areas.",
+      "Do not enter or drive through flood water.",
+      "Follow instructions from SCDF officers."
+    ];
+  }
+
+  return [
+    "Stay clear of the affected area.",
+    "Allow emergency vehicles to pass.",
+    "Follow official instructions from responders."
+  ];
+}
+
+function publicResponderStatus(severity) {
+  return ["Extreme", "Severe"].includes(severity) ? "On scene" : "Monitoring";
+}
+
+async function refreshPublicEmergencyStatus() {
+  const heading = document.querySelector("[data-public-status-heading]");
+  const summary = document.querySelector("[data-public-status-summary]");
+  const pill = document.querySelector("[data-public-alert-pill]");
+  const instructions = document.querySelector("[data-public-instructions]");
+  const overall = document.querySelector("[data-public-overall-status]");
+  const updated = document.querySelector("[data-public-last-updated]");
+  const responders = document.querySelector("[data-public-responders]");
+  const guidanceLink = document.querySelector("[data-public-guidance-link]");
+  const guidanceLabel = document.querySelector("[data-public-guidance-label]");
+  const refreshNote = document.querySelector("[data-public-refresh-note]");
+
+  if (!heading || !summary || !pill || !instructions || !overall || !updated || !responders || !guidanceLink || !guidanceLabel || !refreshNote) return;
+
+  try {
+    const response = await fetch("/api/flood-alerts");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load flood alerts.");
+
+    const [entry] = activeFloodReadings(payload.records || []);
+    if (!entry) {
+      pill.innerHTML = "<span></span> No active flood alerts";
+      heading.innerHTML = "No active flooding reported";
+      summary.textContent = "Singapore is clear of active flood alerts right now. Continue to monitor official channels for updates.";
+      instructions.innerHTML = [
+        "Stay alert during heavy rain.",
+        "Avoid entering flooded areas if conditions change.",
+        "Check the live flood map before travelling."
+      ].map((line) => `<p>${escapeHtml(line)}</p>`).join("");
+      overall.textContent = "Normal";
+      updated.textContent = formatDateTime(payload.fetchedAt);
+      responders.textContent = "Monitoring";
+      const guidance = publicGuidanceFor("flood");
+      guidanceLink.href = guidance.href;
+      guidanceLabel.textContent = guidance.label;
+      refreshNote.textContent = `Auto-refreshed ${formatDateTime(new Date())} · next check in 2 min`;
+      return;
+    }
+
+    const { record, reading } = entry;
+    const area = reading.area?.areaDesc || "Singapore";
+    const severity = reading.severity || "Heightened";
+    const eventText = `${reading.event || ""} ${reading.headline || ""} ${reading.description || ""}`;
+    const guidance = publicGuidanceFor(eventText);
+
+    pill.innerHTML = `<span></span> Active alert · ${escapeHtml(area)}`;
+    heading.innerHTML = `${escapeHtml(reading.event || "Emergency")} reported in <strong>${escapeHtml(area)}</strong>`;
+    summary.textContent = reading.description || "Stay away from affected roads. Do not enter flood water. Emergency services are responding.";
+    instructions.innerHTML = publicInstructionLines(reading).map((line) => `<p>${escapeHtml(line)}</p>`).join("");
+    overall.textContent = severity === "Minor" ? "Heightened" : severity;
+    updated.textContent = formatDateTime(payload.fetchedAt || record.datetime);
+    responders.textContent = publicResponderStatus(reading.severity);
+    guidanceLink.href = guidance.href;
+    guidanceLabel.textContent = guidance.label;
+    refreshNote.textContent = `Auto-refreshed ${formatDateTime(new Date())} · next check in 2 min`;
+  } catch (error) {
+    pill.innerHTML = "<span></span> Live status unavailable";
+    heading.innerHTML = "Unable to refresh emergency status";
+    summary.textContent = "Please check the live map or official emergency channels for the latest updates.";
+    overall.textContent = "Unknown";
+    updated.textContent = "Unable to update";
+    responders.textContent = "Check official channels";
+    refreshNote.textContent = "Auto-refresh will retry in 2 min";
+  }
 }
 
 function renderRoleSelection() {
@@ -648,12 +809,6 @@ async function renderDashboard() {
           <div class="ops-actions">
             <span class="ops-live">${icon("activity")} Live</span>
             <span class="updated-pill">Last Updated : 5:00 PM</span>
-            <a class="secondary-button compact" href="#/flood-map">${icon("alert")} Live Flood Map</a>
-            <a class="secondary-button compact" href="#/evacuation-routing">${icon("arrowRight")} Evacuation Routing</a>
-            <a class="secondary-button compact" href="#/risk-prediction">${icon("activity")} Risk Prediction</a>
-            ${dashboardSimulationAction()}
-            ${dashboardEmergencySpacesAction()}
-            <button class="secondary-button compact" type="button" data-open-volunteer-dispatch>${icon("users")} Volunteer Dispatch</button>
             <button class="secondary-button compact" data-signout>Sign Out</button>
           </div>
         </header>
@@ -670,6 +825,8 @@ async function renderDashboard() {
           <nav class="ops-navigation-links">
             <button class="active" type="button" data-dashboard-overview>${icon("activity")}<span><strong>Overview</strong><small>Live national resource dashboard</small></span></button>
             <a href="#/flood-map">${icon("mapPin")}<span><strong>Live Flood Map</strong><small>View active flood locations</small></span></a>
+            <a href="#/evacuation-routing">${icon("arrowRight")}<span><strong>Evacuation Routing</strong><small>Plan routes around live blockages</small></span></a>
+            <a href="#/risk-prediction">${icon("activity")}<span><strong>Risk Prediction</strong><small>Review live API and DB report risk scores</small></span></a>
             <button type="button" data-open-simulator>${icon("alert")}<span><strong>Incident Simulator</strong><small>Run predefined response scenarios</small></span></button>
             <button type="button" data-open-emergency-spaces>${icon("building")}<span><strong>Emergency Spaces</strong><small>Review overflow shelter capacity</small></span></button>
             <button type="button" data-open-volunteer-dispatch>${icon("users")}<span><strong>Volunteer Dispatch</strong><small>Match and deploy volunteers</small></span></button>
@@ -696,10 +853,12 @@ async function renderDashboard() {
                 <div id="onemap-dashboard-map" class="onemap-dashboard-map">
                   <span>Loading OneMap...</span>
                 </div>
-                <div class="map-legend">
-                  <span class="incident-map-marker fire legend-marker"><span></span></span> Fire
-                  <span class="incident-map-marker flood legend-marker"><span></span></span> Flood
-                </div>
+                <ul class="flood-severity-legend dashboard-map-legend" aria-label="Flood severity legend">
+                  ${SEVERITY_ORDER.map((level) => `<li><i style="background:${severityColor(level)}"></i>${level}</li>`).join("")}
+                </ul>
+                <ul class="dengue-severity-legend dashboard-map-legend" aria-label="Dengue cluster legend">
+                  ${DENGUE_BUCKETS.map((bucket) => `<li><i style="background:${bucket.color}"></i>${bucket.label}</li>`).join("")}
+                </ul>
               </div>
             </section>
 
@@ -1671,6 +1830,7 @@ const DENGUE_BUCKETS = [
 let floodMapTimer = null;
 let dengueMapTimer = null;
 let evacuationMapTimer = null;
+let publicStatusTimer = null;
 
 function severityColor(severity) {
   return SEVERITY_COLORS[severity] || "#5e655f";
@@ -1814,46 +1974,78 @@ function floodListItem({ record, reading }, index) {
   `;
 }
 
+function addOneMapTileLayer(map) {
+  return L.tileLayer("https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png", {
+    detectRetina: true,
+    maxZoom: 19,
+    minZoom: 11,
+    attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
+  }).addTo(map);
+}
+
 async function initOneMapDashboard() {
   const mapEl = document.querySelector("#onemap-dashboard-map");
   if (!mapEl) return;
 
   try {
-    await loadStylesheet("https://www.onemap.gov.sg/web-assets/libs/leaflet/leaflet.css");
-    await loadScript("https://www.onemap.gov.sg/web-assets/libs/leaflet/onemap-leaflet.js");
-    await loadScript("https://www.onemap.gov.sg/web-assets/libs/leaflet/leaflet-tilejson.js");
-
-    const tileJsonResponse = await fetch("https://www.onemap.gov.sg/maps/json/raster/tilejson/2.2.0/Default.json");
-    const tileJson = await tileJsonResponse.json();
     mapEl.innerHTML = "";
 
-    const sw = L.latLng(1.144, 103.535);
-    const ne = L.latLng(1.494, 104.502);
-    const bounds = L.latLngBounds(sw, ne);
-    const map = L.TileJSON.createMap("onemap-dashboard-map", tileJson);
-    map.setMaxBounds(bounds);
-    map.setView(L.latLng(1.345, 103.705), 11);
-    map.attributionControl.setPrefix('<img src="https://www.onemap.gov.sg/web-assets/images/logo/om_logo.png" style="height:20px;width:20px;"/>&nbsp;<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a>&nbsp;&copy;&nbsp;contributors&nbsp;&#124;&nbsp;<a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority</a>');
+    const map = L.map("onemap-dashboard-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
+    addOneMapTileLayer(map);
 
-    addIncidentMarker(map, [1.344, 103.704], "flood", "Flood - Jurong West");
-    addIncidentMarker(map, [1.333, 103.742], "flood", "Flood - Jurong East");
-    addIncidentMarker(map, [1.305, 103.833], "fire", "Fire - TPE response");
+    const floodLayer = L.layerGroup().addTo(map);
+    const dengueLayer = L.layerGroup().addTo(map);
+
+    const [floodResponse, dengueResponse] = await Promise.all([
+      fetch("/api/flood-alerts"),
+      fetch("/api/dengue-clusters")
+    ]);
+    const floodPayload = await floodResponse.json();
+    const denguePayload = await dengueResponse.json();
+    if (!floodResponse.ok) throw new Error(floodPayload.error || "Unable to load flood alerts.");
+    if (!dengueResponse.ok) throw new Error(denguePayload.error || "Unable to load dengue clusters.");
+
+    const bounds = L.latLngBounds([]);
+
+    activeFloodReadings(floodPayload.records || []).forEach((entry) => {
+      const [lat, lng, radiusKm] = entry.reading.area.circle;
+      const color = severityColor(entry.reading.severity);
+      const circle = L.circle([lat, lng], {
+        radius: Math.max(radiusKm, 0.15) * 1000,
+        color,
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.22
+      })
+        .bindPopup(floodPopup(entry))
+        .addTo(floodLayer);
+      bounds.extend(circle.getBounds());
+    });
+
+    (denguePayload.geojson?.features || []).forEach((feature) => {
+      const info = dengueClusterInfo(feature);
+      const layer = geoJsonFeatureToLayer(feature, {
+        style: () => ({
+          color: dengueColor(info.caseSize),
+          weight: 1.5,
+          fillColor: dengueColor(info.caseSize),
+          fillOpacity: 0.35
+        })
+      })
+        .bindPopup(denguePopup(info))
+        .addTo(dengueLayer);
+      if (layer.getBounds) bounds.extend(layer.getBounds());
+    });
+
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 13 });
+    }
 
     window.setTimeout(() => map.invalidateSize(), 100);
     window.addEventListener("resize", () => map.invalidateSize());
   } catch (error) {
-    mapEl.innerHTML = "<span>Unable to load OneMap. Check internet connection.</span>";
+    mapEl.innerHTML = `<span>${error.message || "Unable to load OneMap. Check internet connection."}</span>`;
   }
-}
-
-function addIncidentMarker(map, latLng, type, label) {
-  const marker = L.divIcon({
-    className: `incident-map-marker ${type}`,
-    html: `<span title="${label}"></span>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 28]
-  });
-  L.marker(latLng, { icon: marker }).addTo(map).bindPopup(label);
 }
 
 function loadScript(src) {
@@ -1923,12 +2115,7 @@ async function renderFloodMap() {
   `;
 
   const map = L.map("flood-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
-  L.tileLayer("https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png", {
-    detectRetina: true,
-    maxZoom: 19,
-    minZoom: 11,
-    attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
-  }).addTo(map);
+  addOneMapTileLayer(map);
 
   const markerLayer = L.layerGroup().addTo(map);
   const dengueLayer = L.layerGroup().addTo(map);
@@ -2886,6 +3073,10 @@ function renderRoute() {
   if (evacuationMapTimer) {
     window.clearInterval(evacuationMapTimer);
     evacuationMapTimer = null;
+  }
+  if (publicStatusTimer) {
+    window.clearInterval(publicStatusTimer);
+    publicStatusTimer = null;
   }
   const renderer = routes[window.location.hash] || renderLanding;
   renderer();
