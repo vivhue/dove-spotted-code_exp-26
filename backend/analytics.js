@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const logger = require("./utils/logger");
 
 const MOCK_DATA_PATH = path.join(__dirname, "APIs", "FloodAlertsacrossSingapore.json");
 
@@ -32,7 +33,7 @@ function aggregateTrends(req, res) {
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ series, requested: { from, to }, generatedAt: new Date().toISOString() }));
   } catch (err) {
-    console.error('Analytics.aggregateTrends failed:', err && err.message);
+    logger.logError("analytics.aggregateTrends", err, { method: req.method, url: req.url, statusCode: 500 });
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: 'Analytics aggregation failed.' }));
   }

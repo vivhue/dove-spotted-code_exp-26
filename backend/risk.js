@@ -2,6 +2,7 @@ const { evaluate } = require("./predictEngine");
 const fs = require("fs");
 const path = require("path");
 const Incident = require("./models/Incident");
+const logger = require("./utils/logger");
 
 const MOCK_DATA_PATH = path.join(__dirname, "APIs", "FloodAlertsacrossSingapore.json");
 const FLOOD_ALERTS_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather/flood-alerts";
@@ -109,6 +110,7 @@ async function handleHeatmap(req, res, cached) {
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ type: "FeatureCollection", features, fetchedAt: new Date().toISOString() }));
   } catch (error) {
+    logger.logError("risk.handleHeatmap", error, { method: req.method, url: req.url, statusCode: 500 });
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: "Failed to build heatmap." }));
   }
@@ -153,6 +155,7 @@ async function handlePredict(req, res) {
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ zone, ...pred, observedSamples: observations.length }));
   } catch (error) {
+    logger.logError("risk.handlePredict", error, { method: req.method, url: req.url, statusCode: 500 });
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: "Prediction failed." }));
   }
@@ -202,6 +205,7 @@ async function handleHeatmapDb(req, res) {
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ type: 'FeatureCollection', features, fetchedAt: new Date().toISOString() }));
   } catch (error) {
+    logger.logError("risk.handleHeatmapDb", error, { method: req.method, url: req.url, statusCode: 500 });
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: 'Failed to build DB heatmap.' }));
   }
@@ -228,6 +232,7 @@ async function handlePredictDb(req, res) {
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ zone: inc._id.toString(), ...pred, observedSamples: 1 }));
   } catch (error) {
+    logger.logError("risk.handlePredictDb", error, { method: req.method, url: req.url, statusCode: 500 });
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: 'DB prediction failed.' }));
   }

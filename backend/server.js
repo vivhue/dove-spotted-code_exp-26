@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const connectDB = require("./config/db");
 const User = require("./models/User");
 const { hashPassword, verifyPassword } = require("./utils/password");
+const logger = require("./utils/logger");
 
 loadEnvFile(path.join(__dirname, "..", ".env"));
 
@@ -190,7 +191,7 @@ async function getFloodHazard(demo) {
       }
       return { points, source: "live" };
     } catch (error) {
-      console.error("Evacuation: flood alerts unavailable:", error.message);
+      logger.logError("getFloodHazard", error);
       const demoData = loadEvacuationDemoData();
       return { points: demoData.floodPoints, source: "demo-fallback" };
     }
@@ -212,7 +213,7 @@ async function getIncidentHazard(demo) {
       }
       return { points, source: "live" };
     } catch (error) {
-      console.error("Evacuation: LTA traffic incidents unavailable:", error.message);
+      logger.logError("getIncidentHazard", error);
       const demoData = loadEvacuationDemoData();
       return { points: demoData.incidentPoints, source: "demo-fallback" };
     }
@@ -234,7 +235,7 @@ async function getDengueHazard(demo) {
       }
       return { geojson, source: "live" };
     } catch (error) {
-      console.error("Evacuation: dengue clusters unavailable:", error.message);
+      logger.logError("getDengueHazard", error);
       const demoData = loadEvacuationDemoData();
       return { geojson: demoData.dengueGeoJson, source: "demo-fallback" };
     }
@@ -916,6 +917,7 @@ async function handleApi(req, res) {
         return;
       }
     } catch (err) {
+      logger.logError("handleApi.risk", err, { method: req.method, url: req.url, statusCode: 500 });
       sendJson(res, 500, { error: "Risk service error." });
       return;
     }
@@ -941,6 +943,7 @@ async function handleApi(req, res) {
         return;
       }
     } catch (err) {
+      logger.logError("handleApi.analytics", err, { method: req.method, url: req.url, statusCode: 500 });
       sendJson(res, 500, { error: "Analytics service error." });
       return;
     }
@@ -1265,7 +1268,7 @@ async function handleApi(req, res) {
         fetchedAt: new Date().toISOString()
       });
     } catch (error) {
-      console.error("Evacuation: routing failed:", error.message);
+      logger.logError("evacuation.routing", error, { method: req.method, url: req.url, statusCode: 502 });
       sendJson(res, 502, { error: "Unable to compute a route between these locations right now." });
     }
     return;
@@ -1309,7 +1312,7 @@ async function handleApi(req, res) {
       await inc.save();
       sendJson(res, 201, { incidentId: inc._id.toString(), message: 'Incident recorded' });
     } catch (error) {
-      console.error('Incident save error:', error.message, error.errors);
+      logger.logError("incidents.create", error, { method: req.method, url: req.url, statusCode: 500, validationErrors: error.errors });
       sendJson(res, 500, { error: error.message || 'Failed to record incident' });
     }
     return;
@@ -1420,7 +1423,7 @@ async function handleApi(req, res) {
         sendJson(res, 409, { error: "An account with this email already exists." });
         return;
       }
-      console.error("Professional signup failed:", error.message);
+      logger.logError("auth.professionalSignup", error, { method: req.method, url: req.url, statusCode: 500 });
       sendJson(res, 500, { error: "Unable to submit the registration right now." });
     }
     return;
@@ -1560,7 +1563,7 @@ async function handleApi(req, res) {
         sendJson(res, 409, { error: "An account with this email already exists." });
         return;
       }
-      console.error("Volunteer signup failed:", error.message);
+      logger.logError("auth.volunteerSignup", error, { method: req.method, url: req.url, statusCode: 500 });
       sendJson(res, 500, { error: "Unable to create the account right now." });
     }
     return;
@@ -1578,6 +1581,7 @@ async function handleApi(req, res) {
         const items = await Incident.find().sort({ createdAt: -1 }).limit(200).lean();
         sendJson(res, 200, { count: items.length, incidents: items });
       } catch (err) {
+        logger.logError("debug.readIncidents", err, { method: req.method, url: req.url, statusCode: 500 });
         sendJson(res, 500, { error: 'Failed to read incidents' });
       }
       return;
@@ -1614,7 +1618,7 @@ async function handleApi(req, res) {
       const resInsert = await Incident.insertMany(docs, { ordered: false });
       sendJson(res, 200, { inserted: Array.isArray(resInsert) ? resInsert.length : 0 });
     } catch (err) {
-      console.error('Import failed:', err.message || err);
+      logger.logError("debug.importIncidents", err, { method: req.method, url: req.url, statusCode: 500 });
       sendJson(res, 500, { error: 'Import failed', message: err.message });
     }
     return;
@@ -1658,6 +1662,13 @@ const server = http.createServer((req, res) => {
     return;
   }
   serveStatic(req, res);
+});
+
+process.on('uncaughtException', (err) => {
+  logger.logError('uncaughtException', err);
+});
+process.on('unhandledRejection', (reason) => {
+  logger.logError('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
 });
 
 connectDB().then((connected) => {
