@@ -22,6 +22,68 @@ const capabilities = [
   ["Dynamic Evacuation Routing", "Smart rerouting during emergencies"]
 ];
 
+let emergencySpacesState = [];
+let emergencySpacesLoaded = false;
+let emergencySpacesSeed = [];
+let simulationScenarios = [];
+
+const DEFAULT_DASHBOARD_STATS = {
+  activeIncidents: 5,
+  volunteersOnStandby: 18,
+  sheltersAvailable: 3,
+  riskAlert: "Low"
+};
+
+const DEFAULT_SIMULATION_BRIEFING = "Standby. Run a scenario to generate a rule-based operations briefing.";
+const DEFAULT_RESOURCE_SUMMARY = "No simulation is running. Resource demand summaries will appear here.";
+const DEFAULT_ALERTS = ["No active simulation alerts."];
+const DEFAULT_LIVE_ACTIVITY = [
+  "<strong>12:42</strong> SCDF deployed to Jurong West",
+  "<strong>12:47</strong> PIE congestion elevated",
+  "<strong>12:51</strong> Shelter activation recommended",
+  "<strong>12:53</strong> NUH occupancy exceeded threshold"
+];
+
+const simulationState = {
+  activeScenario: null,
+  selectedScenarioId: "",
+  incidents: [],
+  resources: [],
+  volunteers: [],
+  supplies: [],
+  alerts: [],
+  riskScores: [],
+  briefing: "",
+  stats: { ...DEFAULT_DASHBOARD_STATS }
+};
+
+const volunteerDispatchState = {
+  loaded: false,
+  volunteers: [],
+  selectedIncidentId: "",
+  filters: {
+    skill: "",
+    zone: "",
+    availability: "",
+    status: ""
+  },
+  smartMatchActive: false,
+  smartMatchScores: new Map()
+};
+
+const VOLUNTEER_AVAILABILITY = ["Available", "Off Duty"];
+const VOLUNTEER_STATUSES = ["Available", "Assigned", "En Route", "On Site", "Completed", "Off Duty"];
+const DISPATCH_ZONES = ["Jurong West", "Jurong East", "Bedok", "Tampines", "Changi", "Clementi", "Bukit Timah"];
+const DISPATCH_ZONE_COORDS = {
+  "Jurong West": [1.3507, 103.7004],
+  "Jurong East": [1.3331, 103.7422],
+  Bedok: [1.3236, 103.9273],
+  Tampines: [1.3496, 103.9568],
+  Changi: [1.3644, 103.9915],
+  Clementi: [1.3151, 103.7652],
+  "Bukit Timah": [1.3294, 103.8021]
+};
+
 function shieldIcon() {
   return `
     <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
@@ -67,6 +129,16 @@ function header({ backHref = "", nav = false } = {}) {
       `}
     </header>
   `;
+}
+
+function dashboardSimulationAction() {
+  const template = document.querySelector("#dashboard-simulation-action");
+  return template?.innerHTML.trim() || `<button class="secondary-button compact" type="button" data-open-simulator>Incident Simulator</button>`;
+}
+
+function dashboardEmergencySpacesAction() {
+  const template = document.querySelector("#dashboard-emergency-spaces-action");
+  return template?.innerHTML.trim() || `<button class="secondary-button compact" type="button" data-open-emergency-spaces>Emergency Spaces</button>`;
 }
 
 function renderLanding() {
@@ -915,6 +987,31 @@ async function submitLogin(role, payload) {
 async function renderDashboard() {
   const session = JSON.parse(localStorage.getItem("quickaid-session") || "null");
   const isProfessional = session?.role === "professional";
+  emergencySpacesLoaded = false;
+  emergencySpacesState = [];
+  emergencySpacesSeed = [];
+  simulationScenarios = [];
+  volunteerDispatchState.loaded = false;
+  volunteerDispatchState.volunteers = [];
+  volunteerDispatchState.selectedIncidentId = "";
+  volunteerDispatchState.filters = {
+    skill: "",
+    zone: "",
+    availability: "",
+    status: ""
+  };
+  volunteerDispatchState.smartMatchActive = false;
+  volunteerDispatchState.smartMatchScores = new Map();
+  simulationState.activeScenario = null;
+  simulationState.selectedScenarioId = "";
+  simulationState.incidents = [];
+  simulationState.resources = [];
+  simulationState.volunteers = [];
+  simulationState.supplies = [];
+  simulationState.alerts = [];
+  simulationState.riskScores = [];
+  simulationState.briefing = DEFAULT_SIMULATION_BRIEFING;
+  simulationState.stats = { ...DEFAULT_DASHBOARD_STATS };
   app.innerHTML = `
     <div class="page dashboard-page">
       <main class="ops-dashboard">
@@ -930,6 +1027,9 @@ async function renderDashboard() {
             <span class="ops-live">${icon("activity")} Live</span>
             <span class="updated-pill">Last Updated : 5:00 PM</span>
             <a class="secondary-button compact" href="#/flood-map">${icon("alert")} Live Flood Map</a>
+            ${dashboardSimulationAction()}
+            ${dashboardEmergencySpacesAction()}
+            <button class="secondary-button compact" type="button" data-open-volunteer-dispatch>${icon("users")} Volunteer Dispatch</button>
             <button class="secondary-button compact" data-signout>Sign Out</button>
           </div>
         </header>
@@ -940,10 +1040,10 @@ async function renderDashboard() {
         </section>
 
         <section class="ops-metrics" aria-label="Live emergency metrics">
-          ${opsMetric("Active Accidents", "5", "danger")}
-          ${opsMetric("Emergency Alerts", "3", "danger")}
-          ${opsMetric("SCDF Volunteers Available", "18", "success")}
-          ${opsMetric("Hospital Vacancy", "82%", "warning")}
+          ${opsMetric({ id: "active-incidents", label: "Active Incidents", value: String(DEFAULT_DASHBOARD_STATS.activeIncidents), tone: "danger" })}
+          ${opsMetric({ id: "risk-alert", label: "Risk Alert", value: DEFAULT_DASHBOARD_STATS.riskAlert, tone: "success" })}
+          ${opsMetric({ id: "volunteers-standby", label: "Volunteers On Standby", value: String(DEFAULT_DASHBOARD_STATS.volunteersOnStandby), tone: "success" })}
+          ${opsMetric({ id: "shelters-available", label: "Shelters Available", value: String(DEFAULT_DASHBOARD_STATS.sheltersAvailable), tone: "success" })}
         </section>
 
         <section class="ops-grid">
@@ -963,35 +1063,31 @@ async function renderDashboard() {
 
             <section class="live-activity">
               <h2>Live Activity</h2>
-              <ul>
-                <li><strong>12:42</strong> SCDF deployed to Jurong West</li>
-                <li><strong>12:47</strong> PIE congestion elevated</li>
-                <li><strong>12:51</strong> Shelter activation recommended</li>
-                <li><strong>12:53</strong> NUH occupancy exceeded threshold</li>
+              <ul data-live-activity-list>
+                ${DEFAULT_LIVE_ACTIVITY.map((item) => `<li>${item}</li>`).join("")}
               </ul>
             </section>
           </div>
 
           <aside class="ops-side-column">
             <section class="ops-panel threat-panel">
-              <h2>Threat Level:</h2>
-              <strong class="critical-value">HIGH</strong>
+              <h2>Risk Score</h2>
+              <strong class="critical-value risk-level-indicator risk-level-low" data-risk-score-label>LOW</strong>
+              <p data-risk-score-detail>No active simulation. Current dashboard is showing base demo conditions.</p>
             </section>
             <section class="ops-panel">
-              <h2>Escalation Forecast:</h2>
-              <p><strong>PIE congestion risk↑</strong><br /><strong>NUH overloaded</strong><br /><span>Flood spreading to Clementi</span></p>
+              <h2>Resource Impact</h2>
+              <p data-resource-summary>${DEFAULT_RESOURCE_SUMMARY}</p>
             </section>
             <section class="ops-panel">
-              <h2>Response Queue:</h2>
-              <ul>
-                <li><strong>Redirect PIE traffic</strong> to AYE</li>
-                <li><strong>Deploy SCDF unit</strong> to Jurong West</li>
+              <h2>Alerts</h2>
+              <ul data-alert-list>
+                ${DEFAULT_ALERTS.map((alert) => `<li>${alert}</li>`).join("")}
               </ul>
             </section>
             <section class="ops-panel route-panel">
-              <h2>Dynamic Evacuation Route Updated</h2>
-              <p><strong>AYE rerouted</strong> toward Jurong East CC</p>
-              <strong class="eta-value">ETA: 18 min</strong>
+              <h2>AI Briefing</h2>
+              <p data-ai-briefing>${DEFAULT_SIMULATION_BRIEFING}</p>
             </section>
           </aside>
         </section>
@@ -1000,6 +1096,57 @@ async function renderDashboard() {
           <strong>Connected Feeds:</strong>
           <span>SCDF | NEA | PUB | MOH | LTA</span>
         </footer>
+
+        <section class="simulation-suite-section" data-simulation-section hidden>
+          <div class="simulation-suite-header">
+            <div>
+              <p class="eyebrow">Scenario operations</p>
+              <h2>Incident Simulator</h2>
+              <p class="simulation-suite-note">Simulation mode: This demo uses predefined disaster scenarios to model demand across incidents, resources, volunteers, supplies, alerts, and risk scores.</p>
+            </div>
+          </div>
+          <section class="incident-simulator-card">
+            <h3>Scenario Controls</h3>
+            <label class="simulation-field">
+              Scenario
+              <select data-scenario-select disabled>
+                <option value="">Loading scenarios...</option>
+              </select>
+            </label>
+            <div class="incident-simulator-preview" data-simulation-preview>
+              <p class="simulation-empty">Load a scenario to preview its demand profile.</p>
+            </div>
+            <div class="incident-simulator-actions">
+              <button class="secondary-button compact" type="button" data-run-simulation disabled>Run Simulation</button>
+              <button class="secondary-button compact" type="button" data-reset-simulation disabled>Reset Simulation</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="emergency-spaces-panel-section" data-emergency-spaces-section hidden>
+          <section class="emergency-spaces-section">
+            <div class="emergency-spaces-header">
+              <div>
+                <p class="eyebrow">Emergency resources</p>
+                <h2>Emergency Conversion Spaces</h2>
+                <p class="emergency-spaces-subtitle">Shelter demand is allocated automatically from the active incident scenario. Emergency spaces remain independent from hospital data.</p>
+              </div>
+            </div>
+            <p class="emergency-spaces-message" data-emergency-spaces-message>Run a scenario to see how emergency overflow spaces are allocated.</p>
+            <div class="emergency-spaces-grid" data-emergency-spaces-grid></div>
+          </section>
+        </section>
+
+        <section class="volunteer-dispatch-section" data-volunteer-dispatch-section hidden>
+          <div class="volunteer-dispatch-header">
+            <div>
+              <p class="eyebrow">Volunteer operations</p>
+              <h2>Volunteer Dispatch Workflow</h2>
+              <p class="volunteer-dispatch-note">Dispatch uses seed volunteer data and simulated notifications for now. Profile updates, assignments, and status changes happen instantly without Telegram or MongoDB persistence.</p>
+            </div>
+          </div>
+          <div data-volunteer-dispatch-content></div>
+        </section>
 
         ${!isProfessional ? `<p class="public-dashboard-note">Public view: operational actions are shown for transparency. Professional sign-in unlocks command actions.</p>` : ""}
       </main>
@@ -1011,7 +1158,23 @@ async function renderDashboard() {
     window.location.hash = "#/";
   });
 
+  document.querySelector("[data-open-simulator]").addEventListener("click", showIncidentSimulatorSection);
+  document.querySelector("[data-open-emergency-spaces]").addEventListener("click", showEmergencySpacesSection);
+  document.querySelector("[data-open-volunteer-dispatch]").addEventListener("click", () => {
+    showVolunteerDispatchSection(session);
+  });
+  document.querySelector("[data-scenario-select]").addEventListener("change", (event) => {
+    simulationState.selectedScenarioId = event.currentTarget.value;
+    renderIncidentSimulator();
+  });
+  document.querySelector("[data-run-simulation]").addEventListener("click", () => {
+    runSimulation(simulationState.selectedScenarioId);
+  });
+  document.querySelector("[data-reset-simulation]").addEventListener("click", resetSimulation);
+
   initOneMapDashboard();
+  renderQuickStats();
+  renderSimulationInsights();
 }
 
 function formatAuthError(result, fallback) {
@@ -1030,13 +1193,781 @@ function metric(label, value) {
   `;
 }
 
-function opsMetric(label, value, tone) {
+function opsMetric({ id, label, value, tone }) {
   return `
     <article class="ops-metric">
       <span>${label}</span>
-      <strong class="${tone}">${value}</strong>
+      <strong class="${tone}" data-stat-id="${id}">${value}</strong>
     </article>
   `;
+}
+
+function calculateEmergencySpaceStatus(space) {
+  if (space.currentOccupancy === 0) return "INACTIVE";
+  if (space.currentOccupancy >= space.capacity) return "FULL";
+  if (space.currentOccupancy >= space.capacity * 0.7) return "NEARLY FULL";
+  return "READY";
+}
+
+function decorateEmergencySpace(space) {
+  const currentOccupancy = Math.max(0, Math.min(space.capacity, Number(space.currentOccupancy) || 0));
+  return {
+    ...space,
+    currentOccupancy,
+    availableCapacity: Math.max(space.capacity - currentOccupancy, 0),
+    status: calculateEmergencySpaceStatus({
+      ...space,
+      currentOccupancy
+    })
+  };
+}
+
+function emergencySpaceBadgeClass(status) {
+  if (status === "INACTIVE") return "is-inactive";
+  if (status === "FULL") return "is-full";
+  if (status === "NEARLY FULL") return "is-nearly-full";
+  return "is-ready";
+}
+
+function emergencySpaceCard(space) {
+  return `
+    <article class="emergency-space-card">
+      <div class="emergency-space-card-head">
+        <div>
+          <h3>${space.name}</h3>
+          <p>${space.type}</p>
+        </div>
+        <span class="emergency-space-badge ${emergencySpaceBadgeClass(space.status)}">${space.status}</span>
+      </div>
+      <dl class="emergency-space-stats">
+        <div><dt>Region</dt><dd>${space.region}</dd></div>
+        <div><dt>Current Status</dt><dd>${space.status}</dd></div>
+        <div><dt>Capacity</dt><dd>${space.capacity}</dd></div>
+        <div><dt>Current Occupancy</dt><dd>${space.currentOccupancy}</dd></div>
+        <div><dt>Available Capacity</dt><dd>${space.availableCapacity}</dd></div>
+        <div><dt>Setup Time</dt><dd>${space.setupTimeHours} hours</dd></div>
+        <div><dt>Wheelchair Access</dt><dd>${space.wheelchairAccess ? "Yes" : "No"}</dd></div>
+      </dl>
+    </article>
+  `;
+}
+
+function renderEmergencySpaces() {
+  const grid = document.querySelector("[data-emergency-spaces-grid]");
+  const message = document.querySelector("[data-emergency-spaces-message]");
+  if (!grid || !message) return;
+
+  if (!emergencySpacesState.length) {
+    message.textContent = "Emergency space seed data is unavailable.";
+    grid.innerHTML = "";
+    return;
+  }
+
+  message.textContent = simulationState.activeScenario
+    ? `Shelter demand from ${simulationState.activeScenario.name} has been allocated automatically across emergency spaces.`
+    : "Run a scenario to see how emergency overflow spaces are allocated.";
+  grid.innerHTML = emergencySpacesState.map(emergencySpaceCard).join("");
+}
+
+function renderLiveActivity() {
+  const list = document.querySelector("[data-live-activity-list]");
+  if (!list) return;
+  const items = simulationState.incidents.length
+    ? [
+      `<strong>Sim</strong> ${simulationState.activeScenario.name} activated`,
+      `<strong>Ops</strong> ${simulationState.alerts[0] || "Resource demand updated."}`,
+      ...DEFAULT_LIVE_ACTIVITY.slice(0, 2)
+    ]
+    : DEFAULT_LIVE_ACTIVITY;
+  list.innerHTML = items.map((item) => `<li>${item}</li>`).join("");
+}
+
+function quickStatTone(value, type) {
+  if (type === "risk") {
+    if (String(value).startsWith("High")) return "danger";
+    if (String(value).startsWith("Medium")) return "warning";
+    return "success";
+  }
+  return type;
+}
+
+function renderQuickStats() {
+  const activeIncidents = document.querySelector('[data-stat-id="active-incidents"]');
+  const riskAlert = document.querySelector('[data-stat-id="risk-alert"]');
+  const volunteers = document.querySelector('[data-stat-id="volunteers-standby"]');
+  const shelters = document.querySelector('[data-stat-id="shelters-available"]');
+  if (!activeIncidents || !riskAlert || !volunteers || !shelters) return;
+
+  activeIncidents.textContent = String(simulationState.stats.activeIncidents);
+  activeIncidents.className = quickStatTone(simulationState.stats.activeIncidents, "danger");
+  riskAlert.textContent = simulationState.stats.riskAlert;
+  riskAlert.className = quickStatTone(simulationState.stats.riskAlert, "risk");
+  volunteers.textContent = String(simulationState.stats.volunteersOnStandby);
+  volunteers.className = simulationState.stats.volunteersOnStandby > 0 ? "success" : "warning";
+  shelters.textContent = String(simulationState.stats.sheltersAvailable);
+  shelters.className = simulationState.stats.sheltersAvailable > 0 ? "success" : "warning";
+}
+
+function renderSimulationInsights() {
+  const riskLabel = document.querySelector("[data-risk-score-label]");
+  const riskDetail = document.querySelector("[data-risk-score-detail]");
+  const resourceSummary = document.querySelector("[data-resource-summary]");
+  const alertList = document.querySelector("[data-alert-list]");
+  const aiBriefing = document.querySelector("[data-ai-briefing]");
+  if (!riskLabel || !riskDetail || !resourceSummary || !alertList || !aiBriefing) return;
+
+  const activeRisk = simulationState.riskScores[0];
+  riskLabel.textContent = activeRisk?.level?.toUpperCase() || "LOW";
+  riskLabel.className = `critical-value risk-level-indicator ${activeRisk?.level === "High" ? "risk-level-high" : activeRisk?.level === "Medium" ? "risk-level-medium" : "risk-level-low"}`;
+  riskDetail.textContent = activeRisk
+    ? `${activeRisk.zone} risk has been raised to ${activeRisk.level.toUpperCase()} for this simulation.`
+    : "No active simulation. Current dashboard is showing base demo conditions.";
+  resourceSummary.textContent = simulationState.resources[0]?.summary || DEFAULT_RESOURCE_SUMMARY;
+  alertList.innerHTML = (simulationState.alerts.length ? simulationState.alerts : DEFAULT_ALERTS).map((alert) => `<li>${alert}</li>`).join("");
+  aiBriefing.textContent = simulationState.briefing || DEFAULT_SIMULATION_BRIEFING;
+}
+
+function scenarioPreviewMarkup(scenario) {
+  if (!scenario) {
+    return `<p class="simulation-empty">Choose a scenario to preview severity, affected people, casualties, and demand.</p>`;
+  }
+  return `
+    <dl class="simulation-preview-grid">
+      <div><dt>Severity</dt><dd>${scenario.severity}</dd></div>
+      <div><dt>Affected People</dt><dd>${scenario.affectedPeople}</dd></div>
+      <div><dt>Estimated Casualties</dt><dd>${scenario.estimatedCasualties}</dd></div>
+      <div><dt>Shelter Demand</dt><dd>${scenario.resourceDemand.shelterSpaces}</dd></div>
+      <div><dt>Hospital Beds</dt><dd>${scenario.resourceDemand.hospitalBeds}</dd></div>
+      <div><dt>Volunteers Needed</dt><dd>${scenario.resourceDemand.volunteersNeeded}</dd></div>
+    </dl>
+  `;
+}
+
+function renderIncidentSimulator() {
+  const select = document.querySelector("[data-scenario-select]");
+  const preview = document.querySelector("[data-simulation-preview]");
+  const runButton = document.querySelector("[data-run-simulation]");
+  const resetButton = document.querySelector("[data-reset-simulation]");
+  if (!select || !preview || !runButton || !resetButton) return;
+
+  if (!simulationScenarios.length) {
+    select.innerHTML = `<option value="">Loading scenarios...</option>`;
+    select.disabled = true;
+    preview.innerHTML = `<p class="simulation-empty">Load a scenario to preview its demand profile.</p>`;
+    runButton.disabled = true;
+    resetButton.disabled = !simulationState.activeScenario;
+    return;
+  }
+
+  if (!simulationState.selectedScenarioId) simulationState.selectedScenarioId = simulationScenarios[0].id;
+  select.innerHTML = simulationScenarios.map((scenario) => `<option value="${scenario.id}"${scenario.id === simulationState.selectedScenarioId ? " selected" : ""}>${scenario.name}</option>`).join("");
+  select.disabled = false;
+  const scenario = simulationScenarios.find((item) => item.id === simulationState.selectedScenarioId) || null;
+  preview.innerHTML = scenarioPreviewMarkup(scenario);
+  runButton.disabled = !scenario;
+  resetButton.disabled = !simulationState.activeScenario;
+}
+
+async function fetchSimulationScenarios() {
+  try {
+    const response = await fetch("/api/simulation/scenarios");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load simulation scenarios.");
+    simulationScenarios = Array.isArray(payload) ? payload : [];
+  } catch (error) {
+    simulationScenarios = [];
+    const preview = document.querySelector("[data-simulation-preview]");
+    if (preview) preview.innerHTML = `<p class="simulation-empty error">${error.message}</p>`;
+  }
+  renderIncidentSimulator();
+}
+
+async function fetchEmergencySpaces() {
+  try {
+    const response = await fetch("/api/emergency-spaces");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load emergency spaces.");
+    emergencySpacesSeed = (payload || []).map(decorateEmergencySpace);
+    emergencySpacesState = emergencySpacesSeed.map((space) => ({ ...space }));
+    emergencySpacesLoaded = true;
+  } catch (error) {
+    emergencySpacesSeed = [];
+    emergencySpacesState = [];
+    emergencySpacesLoaded = false;
+    const message = document.querySelector("[data-emergency-spaces-message]");
+    if (message) message.textContent = error.message || "Unable to load emergency spaces.";
+  }
+  renderEmergencySpaces();
+}
+
+async function showIncidentSimulatorSection() {
+  const section = document.querySelector("[data-simulation-section]");
+  if (!section) return;
+  section.hidden = false;
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!emergencySpacesLoaded) {
+    await Promise.all([fetchEmergencySpaces(), fetchSimulationScenarios()]);
+    return;
+  }
+  renderIncidentSimulator();
+}
+
+async function showEmergencySpacesSection() {
+  const section = document.querySelector("[data-emergency-spaces-section]");
+  if (!section) return;
+  section.hidden = false;
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!emergencySpacesLoaded) {
+    await fetchEmergencySpaces();
+    return;
+  }
+  renderEmergencySpaces();
+}
+
+function normaliseTokens(value) {
+  return String(value || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function emergencySpacePriority(space, scenario) {
+  const zoneTokens = new Set(normaliseTokens(scenario.zone));
+  const regionTokens = normaliseTokens(space.region);
+  const regionMatchScore = regionTokens.reduce((score, token) => score + (zoneTokens.has(token) ? 1 : 0), 0);
+  return { regionMatchScore, capacity: space.capacity };
+}
+
+function updateEmergencySpacesFromScenario(scenario) {
+  const orderedSpaces = [...emergencySpacesSeed].sort((a, b) => {
+    const aPriority = emergencySpacePriority(a, scenario);
+    const bPriority = emergencySpacePriority(b, scenario);
+    if (bPriority.regionMatchScore !== aPriority.regionMatchScore) return bPriority.regionMatchScore - aPriority.regionMatchScore;
+    if (bPriority.capacity !== aPriority.capacity) return bPriority.capacity - aPriority.capacity;
+    return a.id - b.id;
+  });
+
+  let remainingShelterDemand = scenario.resourceDemand.shelterSpaces;
+  const allocations = new Map();
+  orderedSpaces.forEach((space) => {
+    const allocated = Math.min(space.capacity, remainingShelterDemand);
+    allocations.set(space.id, allocated);
+    remainingShelterDemand -= allocated;
+  });
+
+  emergencySpacesState = emergencySpacesSeed.map((space) => decorateEmergencySpace({
+    ...space,
+    currentOccupancy: allocations.get(space.id) || 0
+  }));
+
+  simulationState.resources = [{
+    type: "summary",
+    summary: `${scenario.resourceDemand.shelterSpaces} shelter spaces requested, ${scenario.resourceDemand.hospitalBeds} hospital beds requested, ${scenario.resourceDemand.volunteersNeeded} volunteers needed, ${scenario.resourceDemand.medicalKits} medical kits, and ${scenario.resourceDemand.foodPacks} food packs required.${remainingShelterDemand > 0 ? ` ${remainingShelterDemand} shelter spaces remain unmet.` : " All shelter demand has been allocated."}`
+  }];
+
+  renderEmergencySpaces();
+}
+
+function updateQuickStatsFromScenario(scenario) {
+  simulationState.stats = {
+    activeIncidents: DEFAULT_DASHBOARD_STATS.activeIncidents + 1,
+    volunteersOnStandby: Math.max(0, DEFAULT_DASHBOARD_STATS.volunteersOnStandby - scenario.resourceDemand.volunteersNeeded),
+    sheltersAvailable: emergencySpacesState.filter((space) => space.availableCapacity > 0).length,
+    riskAlert: `${scenario.severity === "Medium" ? "Medium" : "High"} (${scenario.zone})`
+  };
+  simulationState.riskScores = [{ zone: scenario.zone, level: scenario.severity === "Medium" ? "Medium" : "High" }];
+  renderQuickStats();
+}
+
+function updateAlertsFromScenario(scenario) {
+  simulationState.alerts = [
+    `${scenario.severity} ${scenario.type.toLowerCase()} reported in ${scenario.zone}. ${scenario.affectedPeople} people affected. ${scenario.resourceDemand.shelterSpaces} shelter spaces required.`,
+    `${scenario.resourceDemand.hospitalBeds} hospital beds and ${scenario.resourceDemand.volunteersNeeded} volunteers have been requested for ${scenario.zone}.`,
+    `${scenario.resourceDemand.medicalKits} medical kits and ${scenario.resourceDemand.foodPacks} food packs are now tagged for scenario response.`
+  ];
+}
+
+function updateBriefingFromScenario(scenario) {
+  simulationState.briefing = `Simulation Update: ${scenario.severity} ${scenario.type.toLowerCase()} in ${scenario.zone} affecting ${scenario.affectedPeople} people. Estimated demand: ${scenario.resourceDemand.shelterSpaces} shelter spaces, ${scenario.resourceDemand.hospitalBeds} hospital beds, and ${scenario.resourceDemand.volunteersNeeded} volunteers. Emergency spaces have been allocated automatically.`;
+}
+
+function applyScenarioImpact(scenario) {
+  simulationState.activeScenario = scenario;
+  simulationState.incidents = [{ id: `sim-${scenario.id}`, name: scenario.name, zone: scenario.zone, severity: scenario.severity }];
+  simulationState.volunteers = [{ zone: scenario.zone, required: scenario.resourceDemand.volunteersNeeded }];
+  simulationState.supplies = [{ medicalKits: scenario.resourceDemand.medicalKits, foodPacks: scenario.resourceDemand.foodPacks }];
+  updateEmergencySpacesFromScenario(scenario);
+  updateQuickStatsFromScenario(scenario);
+  updateAlertsFromScenario(scenario);
+  updateBriefingFromScenario(scenario);
+  renderSimulationInsights();
+  renderLiveActivity();
+  renderIncidentSimulator();
+}
+
+function runSimulation(scenarioId) {
+  const scenario = simulationScenarios.find((item) => item.id === scenarioId);
+  if (!scenario) return;
+  applyScenarioImpact(scenario);
+}
+
+function resetSimulation() {
+  simulationState.activeScenario = null;
+  simulationState.incidents = [];
+  simulationState.resources = [];
+  simulationState.volunteers = [];
+  simulationState.supplies = [];
+  simulationState.alerts = [];
+  simulationState.riskScores = [];
+  simulationState.briefing = DEFAULT_SIMULATION_BRIEFING;
+  simulationState.stats = { ...DEFAULT_DASHBOARD_STATS };
+  emergencySpacesState = emergencySpacesSeed.map((space) => decorateEmergencySpace({ ...space, currentOccupancy: 0 }));
+  renderQuickStats();
+  renderSimulationInsights();
+  renderLiveActivity();
+  renderEmergencySpaces();
+  renderIncidentSimulator();
+}
+
+function currentVolunteerSessionProfile(session) {
+  return volunteerDispatchState.volunteers.find((volunteer) => volunteer.email === session?.email) || null;
+}
+
+function volunteerStatusBadge(status) {
+  return `<span class="volunteer-status-badge is-${status.toLowerCase().replace(/\s+/g, "-")}">${status}</span>`;
+}
+
+function volunteerDistanceKm(volunteer, scenario) {
+  const volunteerPoint = volunteer.lat && volunteer.lng ? [Number(volunteer.lat), Number(volunteer.lng)] : DISPATCH_ZONE_COORDS[volunteer.zone];
+  const scenarioPoint = DISPATCH_ZONE_COORDS[scenario.zone];
+  if (!volunteerPoint || !scenarioPoint) return 25;
+  const dx = volunteerPoint[0] - scenarioPoint[0];
+  const dy = volunteerPoint[1] - scenarioPoint[1];
+  return Math.round(Math.sqrt(dx * dx + dy * dy) * 111);
+}
+
+function scenarioSkillHints(scenario) {
+  if (scenario.type === "Flood") return ["First Aid", "Shelter Ops", "Driving", "Logistics"];
+  if (scenario.type === "Fire") return ["First Aid", "Crowd Control", "Driving", "Logistics"];
+  if (scenario.type === "Health") return ["First Aid", "Translation", "Community Outreach"];
+  return ["First Aid", "Logistics"];
+}
+
+function volunteerMatchScore(volunteer, scenario) {
+  const availabilityScore = volunteer.availability === "Available" && volunteer.status === "Available" ? 45 : volunteer.availability === "Available" ? 10 : -30;
+  const desiredSkills = scenarioSkillHints(scenario).map((skill) => skill.toLowerCase());
+  const volunteerSkills = (volunteer.skills || []).map((skill) => String(skill).toLowerCase());
+  const skillMatches = volunteerSkills.filter((skill) => desiredSkills.includes(skill)).length;
+  const skillScore = skillMatches * 18;
+  const distanceKm = volunteerDistanceKm(volunteer, scenario);
+  const distanceScore = Math.max(0, 30 - distanceKm);
+  return { score: availabilityScore + skillScore + distanceScore, distanceKm, skillMatches };
+}
+
+function filteredVolunteers() {
+  const { skill, zone, availability, status } = volunteerDispatchState.filters;
+  let volunteers = [...volunteerDispatchState.volunteers];
+  if (skill) {
+    const needle = skill.toLowerCase();
+    volunteers = volunteers.filter((volunteer) => volunteer.skills.some((item) => item.toLowerCase().includes(needle)));
+  }
+  if (zone) volunteers = volunteers.filter((volunteer) => volunteer.zone === zone);
+  if (availability) volunteers = volunteers.filter((volunteer) => volunteer.availability === availability);
+  if (status) volunteers = volunteers.filter((volunteer) => volunteer.status === status);
+  if (volunteerDispatchState.smartMatchActive) {
+    const scenario = simulationScenarios.find((item) => item.id === volunteerDispatchState.selectedIncidentId);
+    volunteerDispatchState.smartMatchScores = new Map();
+    if (scenario) {
+      volunteers.forEach((volunteer) => {
+        volunteerDispatchState.smartMatchScores.set(volunteer.id, volunteerMatchScore(volunteer, scenario));
+      });
+    }
+  }
+  if (volunteerDispatchState.smartMatchActive && volunteerDispatchState.smartMatchScores.size) {
+    volunteers.sort((a, b) => (volunteerDispatchState.smartMatchScores.get(b.id)?.score || -999) - (volunteerDispatchState.smartMatchScores.get(a.id)?.score || -999));
+  } else {
+    volunteers.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return volunteers;
+}
+
+async function fetchVolunteers() {
+  const response = await fetch("/api/volunteers");
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Unable to load volunteers.");
+  volunteerDispatchState.volunteers = Array.isArray(result) ? result : [];
+  volunteerDispatchState.loaded = true;
+}
+
+async function createVolunteerProfile(payload) {
+  const response = await fetch("/api/volunteers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(formatAuthError(result, "Unable to create volunteer profile."));
+  await fetchVolunteers();
+  return result;
+}
+
+async function patchVolunteerProfile(id, payload) {
+  const response = await fetch(`/api/volunteers/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(formatAuthError(result, "Unable to update volunteer profile."));
+  await fetchVolunteers();
+  return result;
+}
+
+async function deployVolunteerToIncident(id, incidentId) {
+  const response = await fetch(`/api/volunteers/${id}/deploy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ incidentId })
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Unable to deploy volunteer.");
+  await fetchVolunteers();
+  return result;
+}
+
+async function respondToDeployment(id, action) {
+  const response = await fetch(`/api/volunteers/${id}/respond`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ response: action })
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Unable to respond to deployment.");
+  await fetchVolunteers();
+  return result;
+}
+
+async function updateVolunteerWorkflowStatus(id, status) {
+  const response = await fetch(`/api/volunteers/${id}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Unable to update volunteer status.");
+  await fetchVolunteers();
+  return result;
+}
+
+function volunteerZoneOptions(selected = "") {
+  return `<option value="">All zones</option>${DISPATCH_ZONES.map((zone) => `<option value="${zone}"${zone === selected ? " selected" : ""}>${zone}</option>`).join("")}`;
+}
+
+function professionalDispatchCard(volunteer) {
+  const score = volunteerDispatchState.smartMatchScores.get(volunteer.id);
+  const incidentSelected = Boolean(volunteerDispatchState.selectedIncidentId);
+  const canDeploy = incidentSelected && volunteer.availability === "Available" && volunteer.status === "Available";
+  return `
+    <article class="dispatch-volunteer-card">
+      <div class="dispatch-volunteer-top">
+        <div>
+          <h3>${volunteer.name}</h3>
+          <p>${volunteer.zone} · ${volunteer.currentLocationLabel}</p>
+        </div>
+        <div class="dispatch-volunteer-badges">
+          ${volunteerStatusBadge(volunteer.availability)}
+          ${volunteerStatusBadge(volunteer.status)}
+        </div>
+      </div>
+      <p class="dispatch-volunteer-skills"><strong>Skills:</strong> ${volunteer.skills.length ? volunteer.skills.join(", ") : "General support"}</p>
+      ${score ? `<p class="dispatch-volunteer-match"><strong>Smart Match:</strong> ${score.score} pts · ${score.skillMatches} skill matches · ${score.distanceKm} km away</p>` : ""}
+      ${volunteer.assignedIncidentName ? `<div class="dispatch-assignment-box"><strong>Assigned:</strong> ${volunteer.assignedIncidentName}<br /><span>${volunteer.assignedTask || "Task pending"}</span></div>` : ""}
+      ${volunteer.notificationMessage ? `<p class="dispatch-notification">${volunteer.notificationMessage}</p>` : ""}
+      <div class="dispatch-volunteer-actions">
+        <button class="secondary-button compact" type="button" data-deploy-volunteer="${volunteer.id}"${canDeploy ? "" : " disabled"}>Deploy</button>
+        <select data-professional-status-select="${volunteer.id}">
+          ${VOLUNTEER_STATUSES.map((status) => `<option value="${status}"${status === volunteer.status ? " selected" : ""}>${status}</option>`).join("")}
+        </select>
+        <button class="secondary-button compact" type="button" data-update-volunteer-status="${volunteer.id}">Update Status</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderProfessionalVolunteerDispatch() {
+  const incidentOptions = simulationScenarios.length
+    ? simulationScenarios.map((scenario) => `<option value="${scenario.id}"${scenario.id === volunteerDispatchState.selectedIncidentId ? " selected" : ""}>${scenario.name}</option>`).join("")
+    : `<option value="">No incidents loaded</option>`;
+  const volunteers = filteredVolunteers();
+  return `
+    <section class="volunteer-dispatch-panel">
+      <div class="dispatch-toolbar">
+        <div class="dispatch-toolbar-grid">
+          <label>Active incident
+            <select data-dispatch-incident-select>
+              <option value="">Select incident</option>
+              ${incidentOptions}
+            </select>
+          </label>
+          <label>Filter skill
+            <input type="text" value="${escapeHtml(volunteerDispatchState.filters.skill)}" placeholder="First aid, logistics" data-filter-skill />
+          </label>
+          <label>Zone
+            <select data-filter-zone>${volunteerZoneOptions(volunteerDispatchState.filters.zone)}</select>
+          </label>
+          <label>Availability
+            <select data-filter-availability>
+              <option value="">All</option>
+              ${VOLUNTEER_AVAILABILITY.map((value) => `<option value="${value}"${value === volunteerDispatchState.filters.availability ? " selected" : ""}>${value}</option>`).join("")}
+            </select>
+          </label>
+          <label>Status
+            <select data-filter-status>
+              <option value="">All</option>
+              ${VOLUNTEER_STATUSES.map((value) => `<option value="${value}"${value === volunteerDispatchState.filters.status ? " selected" : ""}>${value}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <div class="dispatch-toolbar-actions">
+          <button class="secondary-button compact" type="button" data-smart-match${volunteerDispatchState.selectedIncidentId ? "" : " disabled"}>Smart Match</button>
+          <button class="secondary-button compact" type="button" data-reset-volunteer-filters>Reset Filters</button>
+        </div>
+      </div>
+      <p class="dispatch-panel-note">Smart Match ranks volunteers by current availability, scenario skill fit, and zone-based distance.</p>
+      <div class="dispatch-volunteer-grid">
+        ${volunteers.length ? volunteers.map(professionalDispatchCard).join("") : `<p class="dispatch-empty">No volunteers match the current filters.</p>`}
+      </div>
+    </section>
+  `;
+}
+
+function publicVolunteerProfileForm(session, volunteer) {
+  const isExisting = Boolean(volunteer);
+  const availability = volunteer?.availability || "Available";
+  return `
+    <section class="volunteer-dispatch-panel">
+      <div class="dispatch-public-layout">
+        <form class="dispatch-public-form" data-public-volunteer-form${isExisting ? ` data-volunteer-id="${volunteer.id}"` : ""}>
+          <h3>${isExisting ? "Volunteer Profile" : "Register Volunteer Profile"}</h3>
+          <div class="dispatch-form-grid">
+            <label>Full name
+              <input name="name" type="text" value="${escapeHtml(volunteer?.name || "")}" required maxlength="80" />
+            </label>
+            <label>Email
+              <input name="email" type="email" value="${escapeHtml(volunteer?.email || session.email || "")}" ${session.email ? "readonly" : ""} required />
+            </label>
+            <label>Phone
+              <input name="phone" type="tel" value="${escapeHtml(volunteer?.phone || "")}" required />
+            </label>
+            <label>Zone
+              <select name="zone" required>
+                ${DISPATCH_ZONES.map((zone) => `<option value="${zone}"${zone === (volunteer?.zone || "") ? " selected" : ""}>${zone}</option>`).join("")}
+              </select>
+            </label>
+            <label class="dispatch-form-span">Current location
+              <input name="currentLocationLabel" type="text" value="${escapeHtml(volunteer?.currentLocationLabel || "")}" placeholder="Community club or landmark" required />
+            </label>
+            <label class="dispatch-form-span">Skills
+              <input name="skills" type="text" value="${escapeHtml((volunteer?.skills || []).join(", "))}" placeholder="First aid, driving, translation" />
+            </label>
+          </div>
+          <div class="dispatch-form-row">
+            <label>Availability
+              <select name="availability">
+                ${VOLUNTEER_AVAILABILITY.map((value) => `<option value="${value}"${value === availability ? " selected" : ""}>${value}</option>`).join("")}
+              </select>
+            </label>
+            <button class="secondary-button compact" type="submit">${isExisting ? "Save Profile" : "Create Profile"}</button>
+          </div>
+          <p class="form-status dispatch-status-message" role="status"></p>
+        </form>
+        <div class="dispatch-assignment-panel">
+          <h3>Assigned Task</h3>
+          ${volunteer ? publicVolunteerAssignment(volunteer) : `<p class="dispatch-empty">Create a volunteer profile to receive dispatch tasks.</p>`}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function publicVolunteerAssignment(volunteer) {
+  const task = volunteer.assignedIncidentName
+    ? `
+      <div class="dispatch-assignment-box">
+        <strong>${volunteer.assignedIncidentName}</strong>
+        <p>${volunteer.assignedTask || "Task pending assignment details."}</p>
+        <p><strong>Status:</strong> ${volunteer.status}</p>
+        ${volunteer.notificationMessage ? `<p class="dispatch-notification">${volunteer.notificationMessage}</p>` : ""}
+      </div>
+    `
+    : `<p class="dispatch-empty">No active deployment. Coordinators will assign tasks here when needed.</p>`;
+  return `${task}${publicVolunteerAssignmentActions(volunteer)}`;
+}
+
+function publicVolunteerAssignmentActions(volunteer) {
+  if (!volunteer.assignedIncidentId) return "";
+  if (volunteer.deploymentResponsePending) {
+    return `
+      <div class="dispatch-inline-actions">
+        <button class="secondary-button compact" type="button" data-volunteer-respond="accept" data-volunteer-id="${volunteer.id}">Accept Deployment</button>
+        <button class="secondary-button compact" type="button" data-volunteer-respond="reject" data-volunteer-id="${volunteer.id}">Reject Deployment</button>
+      </div>
+    `;
+  }
+  if (volunteer.status === "Assigned") return `<button class="secondary-button compact" type="button" data-volunteer-progress="En Route" data-volunteer-id="${volunteer.id}">Mark En Route</button>`;
+  if (volunteer.status === "En Route") return `<button class="secondary-button compact" type="button" data-volunteer-progress="On Site" data-volunteer-id="${volunteer.id}">Mark Arrived / On Site</button>`;
+  if (volunteer.status === "On Site") return `<button class="secondary-button compact" type="button" data-volunteer-progress="Completed" data-volunteer-id="${volunteer.id}">Mark Completed</button>`;
+  if (volunteer.status === "Completed") return `<button class="secondary-button compact" type="button" data-volunteer-progress="Available" data-volunteer-id="${volunteer.id}">Set Available Again</button>`;
+  return "";
+}
+
+function bindProfessionalVolunteerDispatch() {
+  document.querySelector("[data-dispatch-incident-select]")?.addEventListener("change", (event) => {
+    volunteerDispatchState.selectedIncidentId = event.currentTarget.value;
+    volunteerDispatchState.smartMatchActive = false;
+    volunteerDispatchState.smartMatchScores = new Map();
+    renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+  });
+  document.querySelector("[data-filter-skill]")?.addEventListener("input", (event) => {
+    volunteerDispatchState.filters.skill = event.currentTarget.value.trim();
+    renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+  });
+  ["zone", "availability", "status"].forEach((filterName) => {
+    document.querySelector(`[data-filter-${filterName}]`)?.addEventListener("change", (event) => {
+      volunteerDispatchState.filters[filterName] = event.currentTarget.value;
+      renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+    });
+  });
+  document.querySelector("[data-smart-match]")?.addEventListener("click", () => {
+    const scenario = simulationScenarios.find((item) => item.id === volunteerDispatchState.selectedIncidentId);
+    volunteerDispatchState.smartMatchScores = new Map();
+    if (scenario) {
+      volunteerDispatchState.volunteers.forEach((volunteer) => {
+        volunteerDispatchState.smartMatchScores.set(volunteer.id, volunteerMatchScore(volunteer, scenario));
+      });
+      volunteerDispatchState.smartMatchActive = true;
+    }
+    renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+  });
+  document.querySelector("[data-reset-volunteer-filters]")?.addEventListener("click", () => {
+    volunteerDispatchState.filters = { skill: "", zone: "", availability: "", status: "" };
+    volunteerDispatchState.smartMatchActive = false;
+    volunteerDispatchState.smartMatchScores = new Map();
+    renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+  });
+  document.querySelectorAll("[data-deploy-volunteer]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await deployVolunteerToIncident(Number(button.dataset.deployVolunteer), volunteerDispatchState.selectedIncidentId);
+        renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+      } catch (error) {
+        const content = document.querySelector("[data-volunteer-dispatch-content]");
+        if (content) content.prepend(Object.assign(document.createElement("p"), { className: "dispatch-banner error", textContent: error.message }));
+      }
+    });
+  });
+  document.querySelectorAll("[data-update-volunteer-status]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const volunteerId = Number(button.dataset.updateVolunteerStatus);
+      const select = document.querySelector(`[data-professional-status-select="${volunteerId}"]`);
+      if (!select) return;
+      try {
+        await updateVolunteerWorkflowStatus(volunteerId, select.value);
+        renderVolunteerDispatchSection(JSON.parse(localStorage.getItem("quickaid-session") || "null"));
+      } catch (error) {
+        const content = document.querySelector("[data-volunteer-dispatch-content]");
+        if (content) content.prepend(Object.assign(document.createElement("p"), { className: "dispatch-banner error", textContent: error.message }));
+      }
+    });
+  });
+}
+
+function bindPublicVolunteerDispatch(session) {
+  document.querySelector("[data-public-volunteer-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const status = form.querySelector(".dispatch-status-message");
+    const volunteerId = form.dataset.volunteerId ? Number(form.dataset.volunteerId) : null;
+    const data = Object.fromEntries(new FormData(form).entries());
+    data.skills = String(data.skills || "").split(",").map((skill) => skill.trim()).filter(Boolean);
+    status.textContent = volunteerId ? "Updating volunteer profile..." : "Creating volunteer profile...";
+    status.className = "form-status dispatch-status-message";
+    try {
+      if (volunteerId) await patchVolunteerProfile(volunteerId, data);
+      else await createVolunteerProfile(data);
+      renderVolunteerDispatchSection(session);
+      const refreshedStatus = document.querySelector(".dispatch-status-message");
+      if (refreshedStatus) {
+        refreshedStatus.textContent = volunteerId ? "Volunteer profile updated." : "Volunteer profile created.";
+        refreshedStatus.classList.add("success");
+      }
+    } catch (error) {
+      status.textContent = error.message;
+      status.classList.add("error");
+    }
+  });
+
+  document.querySelectorAll("[data-volunteer-respond]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await respondToDeployment(Number(button.dataset.volunteerId), button.dataset.volunteerRespond);
+        renderVolunteerDispatchSection(session);
+      } catch (error) {
+        const status = document.querySelector(".dispatch-status-message");
+        if (status) {
+          status.textContent = error.message;
+          status.classList.add("error");
+        }
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-volunteer-progress]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await updateVolunteerWorkflowStatus(Number(button.dataset.volunteerId), button.dataset.volunteerProgress);
+        renderVolunteerDispatchSection(session);
+      } catch (error) {
+        const status = document.querySelector(".dispatch-status-message");
+        if (status) {
+          status.textContent = error.message;
+          status.classList.add("error");
+        }
+      }
+    });
+  });
+}
+
+function renderVolunteerDispatchSection(session) {
+  const container = document.querySelector("[data-volunteer-dispatch-content]");
+  if (!container) return;
+  if (!volunteerDispatchState.loaded) {
+    container.innerHTML = `<p class="dispatch-empty">Loading volunteer workflow...</p>`;
+    return;
+  }
+  if (session?.role === "professional") {
+    container.innerHTML = renderProfessionalVolunteerDispatch();
+    bindProfessionalVolunteerDispatch();
+    return;
+  }
+  container.innerHTML = publicVolunteerProfileForm(session, currentVolunteerSessionProfile(session));
+  bindPublicVolunteerDispatch(session);
+}
+
+async function showVolunteerDispatchSection(session) {
+  const section = document.querySelector("[data-volunteer-dispatch-section]");
+  if (!section) return;
+  section.hidden = false;
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+  try {
+    if (!volunteerDispatchState.loaded) await fetchVolunteers();
+    if (!simulationScenarios.length) await fetchSimulationScenarios();
+  } catch (error) {
+    const container = document.querySelector("[data-volunteer-dispatch-content]");
+    if (container) container.innerHTML = `<p class="dispatch-empty error">${error.message}</p>`;
+    return;
+  }
+  if (!volunteerDispatchState.selectedIncidentId && simulationScenarios.length) {
+    volunteerDispatchState.selectedIncidentId = simulationScenarios[0].id;
+  }
+  renderVolunteerDispatchSection(session);
 }
 
 const SEVERITY_ORDER = ["Extreme", "Severe", "Moderate", "Minor"];
