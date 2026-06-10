@@ -68,6 +68,7 @@ async function handleHeatmap(req, res, cached) {
           severity: pred.severity,
           confidence: pred.confidence,
           recommendedActions: pred.recommendations,
+          timeToImpact: pred.timeToImpact,
           description: rec.item?.description || `Upstream alert at ${rec.datetime || 'unknown time'}`,
           explanation: pred.explanation || ''
         },

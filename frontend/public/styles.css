@@ -168,6 +168,26 @@ input {
   color: #a92525;
 }
 
+.top-nav .nav-auth-link {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 16px;
+  background: #fff;
+}
+
+.top-nav .nav-signup-link {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.top-nav .nav-signup-link:hover {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #fff;
+}
+
 .nav-live-link span,
 .live-badge i {
   width: 9px;
@@ -251,18 +271,34 @@ p {
 .hero-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 14px;
   margin-top: 28px;
 }
 
 .status-button {
   min-height: 52px;
+  flex: 0 1 auto;
 }
 
-.sign-in-button {
+.sign-in-button,
+.sign-up-button {
   min-height: 52px;
+  min-width: 132px;
   padding-inline: 24px;
+  flex: 0 0 auto;
+}
+
+.sign-up-button {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.sign-up-button:hover {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #fff;
 }
 
 .access-note {
@@ -573,8 +609,9 @@ p {
 .public-status-main {
   min-height: calc(100vh - 76px);
   display: grid;
-  align-items: center;
-  padding: clamp(42px, 5vw, 78px) clamp(24px, 4vw, 56px) 64px;
+  align-items: start;
+  align-content: start;
+  padding: clamp(42px, 5vw, 78px) 0 80px;
 }
 
 .public-status-hero {
@@ -584,6 +621,7 @@ p {
   align-items: center;
   width: min(100%, 1280px);
   margin: 0 auto;
+  padding: 0 clamp(24px, 4vw, 56px);
 }
 
 .public-status-copy {
@@ -963,6 +1001,10 @@ p {
   font-size: 13px;
 }
 
+.auth-switch-line {
+  margin-top: 22px;
+}
+
 .signup-line a {
   font-weight: 800;
 }
@@ -1325,7 +1367,10 @@ p {
 
 .ops-navigation.open ~ .ops-grid .leaflet-control-container,
 .ops-navigation.open ~ .ops-grid .leaflet-top,
-.ops-navigation.open ~ .ops-grid .leaflet-bottom {
+.ops-navigation.open ~ .ops-grid .leaflet-bottom,
+.ops-navigation.open ~ .ops-feature-shell .leaflet-control-container,
+.ops-navigation.open ~ .ops-feature-shell .leaflet-top,
+.ops-navigation.open ~ .ops-feature-shell .leaflet-bottom {
   pointer-events: none;
 }
 
@@ -1466,6 +1511,18 @@ p {
   height: 22px;
 }
 
+.ops-signup-button {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.ops-signup-button:hover {
+  border-color: var(--teal-dark);
+  background: var(--teal-dark);
+  color: #fff;
+}
+
 .ops-alert {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1491,6 +1548,19 @@ p {
   color: #4b4650;
   font-size: clamp(17px, 1.55vw, 26px);
   line-height: 1.08;
+}
+
+.demo-mode-banner {
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  border: 1px solid #f0c36d;
+  border-radius: 10px;
+  background: #fff7e6;
+  color: #8a5600;
+}
+
+.demo-mode-banner strong {
+  display: block;
 }
 
 .ops-metrics {
@@ -2060,8 +2130,20 @@ p {
     flex: 1 1 0;
   }
 
-  .public-status-main {
+  .public-status-hero {
     padding-inline: 18px;
+  }
+
+  .public-features-section {
+    padding-inline: 18px;
+  }
+
+  .public-features-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .public-feature-actions {
+    flex-direction: column;
   }
 
   .public-status-hero h1 {
@@ -2659,6 +2741,10 @@ p {
   gap: 16px;
 }
 
+.analytics-summary-grid .metric-card {
+  text-align: center;
+}
+
 /* Section B – Chart pair */
 .analytics-charts {
   margin-bottom: 36px;
@@ -2737,6 +2823,10 @@ p {
   font-weight: 900;
   line-height: 1;
   color: var(--teal);
+}
+
+.analytics-shelter-card strong.high-occupancy {
+  color: var(--red);
 }
 
 /* Section D – AI Strategic Insights */
@@ -3176,43 +3266,119 @@ p {
   }
 }
 
-.theme-toggle {
-  position: fixed;
-  right: clamp(16px, 3vw, 28px);
-  bottom: clamp(16px, 3vw, 28px);
-  z-index: 1000;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
+/* ── Report Incident form ── */
+.report-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.report-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.report-form input,
+.report-form select,
+.report-form textarea {
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--card);
+  border-radius: 8px;
+  font-size: 0.93rem;
+  font-family: inherit;
   color: var(--ink);
-  box-shadow: var(--shadow);
-  cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  background: var(--paper);
+  width: 100%;
 }
 
-.theme-toggle:hover {
+.report-form input:focus,
+.report-form select:focus,
+.report-form textarea:focus {
+  outline: none;
   border-color: var(--teal);
+  box-shadow: 0 0 0 2px rgba(15,118,110,0.15);
+}
+
+.report-form textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.form-status {
+  font-size: 0.85rem;
   color: var(--teal);
+  min-height: 1.2em;
 }
 
-.theme-toggle .icon {
-  width: 20px;
-  height: 20px;
+/* ── Public features section (risk prediction + analytics on public dashboard) ── */
+.public-features-section {
+  width: min(100%, 1280px);
+  margin: 56px auto 0;
+  padding: 0 clamp(24px, 4vw, 56px);
 }
 
-.theme-toggle .theme-toggle-icon-dark {
-  display: none;
+.public-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 24px;
 }
 
-[data-theme="dark"] .theme-toggle .theme-toggle-icon-light {
-  display: none;
+.public-feature-card {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: clamp(24px, 3vw, 36px);
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(18, 19, 18, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
-[data-theme="dark"] .theme-toggle .theme-toggle-icon-dark {
-  display: inline-flex;
+.public-feature-card h2 {
+  font-size: clamp(22px, 2.2vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.public-feature-desc {
+  color: var(--muted);
+  font-size: clamp(14px, 1.1vw, 16px);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.public-feature-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.public-feature-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+}
+
+/* ── Title rows with inline flood map button ── */
+.risk-title-row,
+.analytics-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.risk-title-row h1,
+.analytics-title-row h1 {
+  margin-bottom: 0;
 }

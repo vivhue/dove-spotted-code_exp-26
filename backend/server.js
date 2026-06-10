@@ -795,6 +795,16 @@ async function validateUserPassword(user, password) {
   return verifyPassword(password, user.passwordHash);
 }
 
+function loginPageName(role) {
+  return role === "professional" ? "Professional Login" : "Public Login";
+}
+
+function accountTypeName(user) {
+  if (user?.role === "professional") return "professional";
+  if (user?.isVolunteer) return "volunteer";
+  return "public";
+}
+
 function loginRateKey(req, role, email) {
   const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   const address = forwarded || req.socket.remoteAddress || "unknown";
@@ -840,11 +850,26 @@ async function authenticateUser(req, role, email, password) {
     role,
     "+failedLoginAttempts +loginLockedUntil"
   );
+  if (!user) {
+    const existingAccount = await findUser(email, null);
+    if (existingAccount) {
+      return {
+        statusCode: 401,
+        error: `This email is registered as a ${accountTypeName(existingAccount)} account. Use ${loginPageName(existingAccount.role)}.`
+      };
+    }
+  }
   if (user?.loginLockedUntil && user.loginLockedUntil.getTime() > Date.now()) {
     const minutes = Math.max(1, Math.ceil((user.loginLockedUntil.getTime() - Date.now()) / 60_000));
     return {
       statusCode: 423,
       error: `This account is temporarily locked. Try again in ${minutes} minutes.`
+    };
+  }
+  if (user && !user.passwordHash) {
+    return {
+      statusCode: 401,
+      error: "This account is missing a saved password. Create it again through QuickAid sign-up or ask the team to repair the MongoDB user record."
     };
   }
 
@@ -1255,6 +1280,19 @@ async function handleApi(req, res) {
         return;
       }
       const Incident = require('./models/Incident');
+      if (body.postcode && !body.lat) {
+        try {
+          const omUrl = `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(body.postcode)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
+          const omResp = await fetch(omUrl);
+          const omData = await omResp.json();
+          const first = omData.results?.[0];
+          if (first) {
+            body.lat = parseFloat(first.LATITUDE);
+            body.lng = parseFloat(first.LONGITUDE);
+            if (!body.location) body.location = first.ADDRESS || first.SEARCHVAL || body.postcode;
+          }
+        } catch (_) { /* proceed without coords if lookup fails */ }
+      }
       const inc = new Incident({
         reporter: body.reporter || 'anonymous',
         reporterRole: body.reporterRole || 'public',
@@ -1267,10 +1305,12 @@ async function handleApi(req, res) {
         lng: body.lng,
         note: body.note || ''
       });
+      console.log('Saving incident:', JSON.stringify(inc.toObject()));
       await inc.save();
       sendJson(res, 201, { incidentId: inc._id.toString(), message: 'Incident recorded' });
     } catch (error) {
-      sendJson(res, 500, { error: 'Failed to record incident' });
+      console.error('Incident save error:', error.message, error.errors);
+      sendJson(res, 500, { error: error.message || 'Failed to record incident' });
     }
     return;
   }
