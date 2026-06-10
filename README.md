@@ -49,34 +49,12 @@ frontend/
 
 Demo login rules:
 
-- Professional login needs a valid email, password with 8 or more characters, and a generated 6-digit verification code.
+- Professional login needs an account created with a supported official agency email and its password.
 - Public login needs a valid email and password with 6 or more characters, or use the Google demo button.
 
-Professional verification code:
-
-1. Enter professional email and password.
-2. Click `Send 6-digit code`.
-3. Enter the generated code.
-4. Click `Sign In`.
-
-Professional OTP requires MongoDB and a Telegram account linked to that
-specific professional.
-
-For Telegram delivery, create a `.env` file in the project root:
-
-```text
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_BOT_USERNAME=your_bot_username_without_at
-OTP_SECRET=change_this_to_any_long_random_text
-```
-
-Then run:
-
-```bash
-nodemon backend/server.js
-```
-
-The verification code expires after 5 minutes and allows 5 attempts.
+Both login types use server-held sessions in an HttpOnly, SameSite cookie.
+Repeated failed passwords are rate limited, and an account is temporarily
+locked for 15 minutes after five failed attempts.
 
 MongoDB setup:
 
@@ -116,8 +94,7 @@ Then run:
 npm run seed
 ```
 
-Both passwords are stored as hashes in MongoDB. Professional users must have
-`role: "professional"` and `status: "approved"` before they can request an OTP.
+Both passwords are stored as bcrypt hashes in MongoDB.
 
 Public email login requires an existing account. New volunteers register at
 `http://127.0.0.1:3000/#/signup/volunteer`.
@@ -126,34 +103,15 @@ Professional registration:
 
 1. Open `http://127.0.0.1:3000/#/signup/professional`.
 2. Register with a supported agency and official work email.
-3. The account is stored with `role: "professional"` and `status: "pending"`.
-4. An administrator opens `http://127.0.0.1:3000/#/admin/login`.
-5. The administrator reviews the registration and selects Approve or Reject.
-6. An approved user can sign in with the password they chose and connect their own
-   Telegram account.
+3. The server validates that the email domain matches the selected agency.
+4. The account is stored with `role: "professional"` and a bcrypt password hash.
+5. The professional can sign in with the password they chose.
 
 Supported production domains are checked against the selected agency:
 `scdf.gov.sg`, `spf.gov.sg`, `moh.gov.sg`, `nea.gov.sg`, `pub.gov.sg`, and
 `lta.gov.sg`. For local classroom accounts, domains listed in
 `PROFESSIONAL_TEST_DOMAINS` are also accepted. The default is
 `quickaid.test`, including subdomains such as `scdf.quickaid.test`.
-
-Matching an email domain does not approve an account. Administrator review is
-still required.
-
-Administrator setup:
-
-Add a private administrator account to `.env`:
-
-```text
-SEED_ADMIN_EMAIL=admin@quickaid.test
-SEED_ADMIN_PASSWORD=use_a_strong_unique_password
-SEED_ADMIN_NAME=QuickAid Administrator
-```
-
-Run `npm run seed`, then sign in at
-`http://127.0.0.1:3000/#/admin/login`. The approval API requires a temporary
-admin session token and does not accept professional or public accounts.
 
 Team MongoDB setup:
 
@@ -192,7 +150,10 @@ Password security:
 - Passwords are hashed with `bcrypt.hash()`.
 - Login checks use `bcrypt.compare()`.
 - Plain-text passwords are never stored in MongoDB.
-- Original passwords are never displayed or sent through Telegram.
+- Original passwords are never displayed, sent through Telegram, or returned by the API.
+- Sessions expire after eight hours and are invalidated when the user signs out.
+- Login attempts are limited per account and client address.
+- Five incorrect passwords temporarily lock the account for 15 minutes.
 - Approved professionals can reset a forgotten password at
   `http://127.0.0.1:3000/#/reset/professional`.
 - Reset codes expire after five minutes, are stored as hashes, and are sent
@@ -303,3 +264,74 @@ If you'd like a local dev server with auto-restart, run:
 ```bash
 npm run dev
 ```
+
+Dynamic Evacuation Routing
+---------------------------
+
+Plan a driving route across Singapore that avoids roads currently affected by
+live flood alerts, NEA dengue clusters, and LTA traffic incidents. Open
+`#/evacuation-routing` from the dashboard.
+
+Setting a start and destination:
+
+- Type an address, postal code, or building name into the `Start` /
+  `Destination` fields and press `Search`. Results come from the OneMap
+  Search API; if more than one match is found, pick the right one from the
+  list shown.
+- Or press `Use my location` to fill a field from the browser's Geolocation
+  API. If permission is denied, the position is unavailable, or the request
+  times out, a clear message is shown and you can fall back to typing an
+  address.
+- Or click the map: the first click sets the start point, the second sets the
+  destination. Each click reverse-geocodes to fill in the matching field.
+
+Once both points are set, press `Find Safe Route`. The map shows the normal
+route (blue) and a re-routed path (red dashed) that avoids the hazards
+selected below.
+
+Hazard layers:
+
+Each hazard layer (Flood alerts, Road incidents, Dengue clusters) has two
+independent toggles:
+
+- `Show` — draw the hazard on the map (flood/incident points are buffered
+  circles; dengue clusters are drawn from their actual NEA polygon shapes).
+- `Avoid` — include the hazard in the `avoid_polygons` sent to
+  openrouteservice. Flood points and incident points are buffered into small
+  squares before being avoided; dengue cluster polygons are used as-is.
+
+By default, flood alerts and road incidents are avoided, while dengue
+clusters are shown but not avoided (you can change this in the toggles).
+Changing any `Avoid` toggle recomputes the route immediately. Hazards and the
+route are also refreshed automatically every 2 minutes.
+
+Required environment variables (add to `.env` in the project root):
+
+```
+ORS_API_KEY=your_openrouteservice_api_key
+LTA_ACCOUNT_KEY=your_lta_datamall_account_key
+EVAC_BLOCKAGE_BUFFER_M=600
+```
+
+- `ORS_API_KEY` — openrouteservice API key, used for the Directions API.
+- `LTA_ACCOUNT_KEY` — LTA DataMall account key, used for live traffic incidents.
+  If unset, traffic incidents are skipped and that layer falls back to demo
+  data.
+- `EVAC_BLOCKAGE_BUFFER_M` — radius (in metres) used to turn each flood/incident
+  point into an "avoid" polygon for routing. Defaults to `600`. Dengue cluster
+  polygons are not buffered; they are used as-is.
+
+The OneMap Search and reverse-geocoding endpoints used for the location
+inputs are public and do not require an API key.
+
+Demo mode:
+
+- Tick the `Demo mode` checkbox on the routing page to use fixed sample
+  hazards (flood points, an incident point, and a dengue cluster polygon) and
+  a precomputed sample route from `backend/data/evacuation-demo.json`, without
+  calling any external APIs.
+- The backend also automatically falls back to demo data on a per-layer basis
+  if `ORS_API_KEY` is missing, the openrouteservice request fails, or any
+  individual hazard feed (flood, dengue, or traffic incidents) is unavailable
+  or returns no data — so a live demo keeps working even if an upstream API is
+  slow or down.

@@ -6,13 +6,12 @@ const routes = {
   "#/login": renderRoleSelection,
   "#/login/professional": renderProfessionalLogin,
   "#/signup/professional": renderProfessionalSignup,
-  "#/reset/professional": renderProfessionalReset,
-  "#/admin/login": renderAdminLogin,
-  "#/admin/approvals": renderAdminApprovals,
   "#/login/public": renderPublicLogin,
   "#/signup/volunteer": renderVolunteerSignup,
+  "#/public-status": renderPublicEmergencyStatus,
   "#/dashboard": renderDashboard,
   "#/flood-map": renderFloodMap,
+  "#/evacuation-routing": renderEvacuationRouting,
   "#/risk-prediction": renderRiskPrediction,
   "#/analytics": renderAnalytics
 };
@@ -28,6 +27,7 @@ let emergencySpacesState = [];
 let emergencySpacesLoaded = false;
 let emergencySpacesSeed = [];
 let simulationScenarios = [];
+let opsMenuKeydownHandler = null;
 
 const DEFAULT_DASHBOARD_STATS = {
   activeIncidents: 5,
@@ -104,7 +104,8 @@ function icon(name) {
     info: '<circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />',
     alert: '<path d="M10.3 3.4 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.4a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01" />',
     activity: '<path d="M3 12h4l2.2-7 4.1 14 2.2-7H21" />',
-    barChart: '<path d="M3 3v18h18M7 16v-5M11 16V8M15 16v-3M19 16V5" />',
+    close: '<path d="M18 6 6 18M6 6l12 12" />',
+    mapPin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0z" /><circle cx="12" cy="10" r="2.5" />',
     google: '<path d="M21.8 12.2c0-.7-.1-1.3-.2-1.9H12v3.6h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.2c1.9-1.8 3.1-4.4 3.1-7.4z" /><path d="M12 22c2.7 0 5-0.9 6.7-2.4L15.5 17a6 6 0 0 1-8.9-3.1H3.3v2.7A10 10 0 0 0 12 22z" /><path d="M6.6 13.9a6 6 0 0 1 0-3.8V7.4H3.3a10 10 0 0 0 0 9.2l3.3-2.7z" /><path d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-8.7 5.4l3.3 2.7A6 6 0 0 1 12 6z" />'
   };
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
@@ -125,23 +126,13 @@ function header({ backHref = "", nav = false } = {}) {
           <a href="#about">About</a>
           <a href="#features">Features</a>
           <a href="#contact">Contact</a>
-          <a class="nav-live-link" href="#/dashboard"><span></span> Live Dashboard</a>
+          <a class="nav-live-link" href="#/public-status"><span></span> Live Status</a>
         </nav>
       ` : `
         <a class="back-link" href="${backHref || "#/"}">${icon("arrowLeft")} Back</a>
       `}
     </header>
   `;
-}
-
-function dashboardSimulationAction() {
-  const template = document.querySelector("#dashboard-simulation-action");
-  return template?.innerHTML.trim() || `<button class="secondary-button compact" type="button" data-open-simulator>Incident Simulator</button>`;
-}
-
-function dashboardEmergencySpacesAction() {
-  const template = document.querySelector("#dashboard-emergency-spaces-action");
-  return template?.innerHTML.trim() || `<button class="secondary-button compact" type="button" data-open-emergency-spaces>Emergency Spaces</button>`;
 }
 
 function renderLanding() {
@@ -159,7 +150,7 @@ function renderLanding() {
             <h1>Helping Singapore respond faster during crisis</h1>
             <p class="hero-summary">A unified operational coordination platform powered by AI for real-time emergency management and resource optimisation.</p>
             <div class="hero-actions">
-              <a class="primary-button status-button" href="#/dashboard">${icon("activity")} Live emergency status ${icon("arrowRight")}</a>
+              <a class="primary-button status-button" href="#/public-status">${icon("activity")} Live emergency status ${icon("arrowRight")}</a>
               <a class="secondary-button sign-in-button" href="#/login">Sign in</a>
             </div>
             <p class="access-note">For emergency professionals, residents, and volunteers.</p>
@@ -216,22 +207,192 @@ function renderLanding() {
           </div>
         </section>
 
-        <section class="contact-band" id="contact">
-          <div>
-            <p class="eyebrow">Coordination desk</p>
-            <h2>Connect agencies, responders, and volunteers in one shared view.</h2>
+      </main>
+    </div>
+  `;
+}
+
+function renderPublicEmergencyStatus() {
+  app.innerHTML = `
+    <div class="page public-status-page">
+      <header class="public-status-header">
+        <a class="brand" href="#/">
+          ${shieldIcon()}
+          <span>
+            <strong>QuickAid</strong>
+            <small>Public emergency status</small>
+          </span>
+        </a>
+        <nav class="public-status-actions" aria-label="Public status navigation">
+          <a class="secondary-button compact" href="#/">${icon("arrowLeft")} Back</a>
+          <a class="secondary-button compact" href="#/login">Sign in ${icon("arrowRight")}</a>
+        </nav>
+      </header>
+
+      <main class="public-status-main">
+        <section class="public-status-hero" aria-labelledby="public-status-heading">
+          <div class="public-status-copy">
+            <p class="public-alert-pill" data-public-alert-pill><span></span> Loading live alert</p>
+            <h1 id="public-status-heading" data-public-status-heading>Checking live emergency status</h1>
+            <p class="public-status-summary" data-public-status-summary>Fetching the latest public advisory...</p>
           </div>
-          <div class="contact-action">
-            <a class="access-button" href="#/login">
-              Choose your role
-              ${icon("arrowRight")}
-            </a>
-            <span>Professional or public access</span>
-          </div>
+
+          <aside class="public-status-panel" aria-label="Public emergency details">
+            <section class="public-instruction-card" aria-label="What you should do now">
+              <h2>What you should do now</h2>
+              <div data-public-instructions>
+                <p>Stay clear of affected areas.</p>
+                <p>Follow official instructions from emergency responders.</p>
+              </div>
+            </section>
+
+            <div class="public-status-buttons">
+              <a class="primary-button public-map-button" href="#/flood-map">${icon("mapPin")} View live flood map</a>
+              <a class="secondary-button public-guidance-button" href="https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/civil-defence-emergency--handbook---interactive-tools" target="_blank" rel="noopener noreferrer" data-public-guidance-link>${icon("arrowRight")} <span data-public-guidance-label>SCDF emergency guidance</span></a>
+            </div>
+
+            <div class="public-status-stats" aria-label="Emergency status summary">
+              <article>
+                <span>Overall status</span>
+                <strong data-public-overall-status>Loading</strong>
+              </article>
+              <article>
+                <span>Last updated</span>
+                <strong data-public-last-updated>—</strong>
+              </article>
+              <article>
+                <span>Responders</span>
+                <strong data-public-responders>Monitoring</strong>
+              </article>
+            </div>
+
+            <footer class="public-status-footer">
+              <span>Public view · No sign in required</span>
+              <span data-public-refresh-note>Auto-refreshes every 2 min</span>
+            </footer>
+          </aside>
         </section>
       </main>
     </div>
   `;
+
+  refreshPublicEmergencyStatus();
+  publicStatusTimer = window.setInterval(refreshPublicEmergencyStatus, 120_000);
+}
+
+function publicGuidanceFor(text) {
+  const normalized = String(text || "").toLowerCase();
+  if (normalized.includes("fire")) {
+    return {
+      label: "SCDF fire safety advisories",
+      href: "https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/fire-safety-and-emergency-advisories"
+    };
+  }
+  if (normalized.includes("flood") || normalized.includes("rain")) {
+    return {
+      label: "SCDF emergency handbook",
+      href: "https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/civil-defence-emergency--handbook---interactive-tools"
+    };
+  }
+  return {
+    label: "SCDF emergency guidance",
+    href: "https://www.scdf.gov.sg/home/community-and-volunteers/fire-emergency-guides/civil-defence-emergency--handbook---interactive-tools"
+  };
+}
+
+function publicInstructionLines(reading) {
+  if (reading?.instruction) {
+    return String(reading.instruction)
+      .split(/[.;]\s+/)
+      .map((line) => line.replace(/[.;]\s*$/, "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+  }
+
+  const eventText = `${reading?.event || ""} ${reading?.headline || ""}`.toLowerCase();
+  if (eventText.includes("flood")) {
+    return [
+      "Avoid affected roads and low-lying areas.",
+      "Do not enter or drive through flood water.",
+      "Follow instructions from SCDF officers."
+    ];
+  }
+
+  return [
+    "Stay clear of the affected area.",
+    "Allow emergency vehicles to pass.",
+    "Follow official instructions from responders."
+  ];
+}
+
+function publicResponderStatus(severity) {
+  return ["Extreme", "Severe"].includes(severity) ? "On scene" : "Monitoring";
+}
+
+async function refreshPublicEmergencyStatus() {
+  const heading = document.querySelector("[data-public-status-heading]");
+  const summary = document.querySelector("[data-public-status-summary]");
+  const pill = document.querySelector("[data-public-alert-pill]");
+  const instructions = document.querySelector("[data-public-instructions]");
+  const overall = document.querySelector("[data-public-overall-status]");
+  const updated = document.querySelector("[data-public-last-updated]");
+  const responders = document.querySelector("[data-public-responders]");
+  const guidanceLink = document.querySelector("[data-public-guidance-link]");
+  const guidanceLabel = document.querySelector("[data-public-guidance-label]");
+  const refreshNote = document.querySelector("[data-public-refresh-note]");
+
+  if (!heading || !summary || !pill || !instructions || !overall || !updated || !responders || !guidanceLink || !guidanceLabel || !refreshNote) return;
+
+  try {
+    const response = await fetch("/api/flood-alerts");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load flood alerts.");
+
+    const [entry] = activeFloodReadings(payload.records || []);
+    if (!entry) {
+      pill.innerHTML = "<span></span> No active flood alerts";
+      heading.innerHTML = "No active flooding reported";
+      summary.textContent = "Singapore is clear of active flood alerts right now. Continue to monitor official channels for updates.";
+      instructions.innerHTML = [
+        "Stay alert during heavy rain.",
+        "Avoid entering flooded areas if conditions change.",
+        "Check the live flood map before travelling."
+      ].map((line) => `<p>${escapeHtml(line)}</p>`).join("");
+      overall.textContent = "Normal";
+      updated.textContent = formatDateTime(payload.fetchedAt);
+      responders.textContent = "Monitoring";
+      const guidance = publicGuidanceFor("flood");
+      guidanceLink.href = guidance.href;
+      guidanceLabel.textContent = guidance.label;
+      refreshNote.textContent = `Auto-refreshed ${formatDateTime(new Date())} · next check in 2 min`;
+      return;
+    }
+
+    const { record, reading } = entry;
+    const area = reading.area?.areaDesc || "Singapore";
+    const severity = reading.severity || "Heightened";
+    const eventText = `${reading.event || ""} ${reading.headline || ""} ${reading.description || ""}`;
+    const guidance = publicGuidanceFor(eventText);
+
+    pill.innerHTML = `<span></span> Active alert · ${escapeHtml(area)}`;
+    heading.innerHTML = `${escapeHtml(reading.event || "Emergency")} reported in <strong>${escapeHtml(area)}</strong>`;
+    summary.textContent = reading.description || "Stay away from affected roads. Do not enter flood water. Emergency services are responding.";
+    instructions.innerHTML = publicInstructionLines(reading).map((line) => `<p>${escapeHtml(line)}</p>`).join("");
+    overall.textContent = severity === "Minor" ? "Heightened" : severity;
+    updated.textContent = formatDateTime(payload.fetchedAt || record.datetime);
+    responders.textContent = publicResponderStatus(reading.severity);
+    guidanceLink.href = guidance.href;
+    guidanceLabel.textContent = guidance.label;
+    refreshNote.textContent = `Auto-refreshed ${formatDateTime(new Date())} · next check in 2 min`;
+  } catch (error) {
+    pill.innerHTML = "<span></span> Live status unavailable";
+    heading.innerHTML = "Unable to refresh emergency status";
+    summary.textContent = "Please check the live map or official emergency channels for the latest updates.";
+    overall.textContent = "Unknown";
+    updated.textContent = "Unable to update";
+    responders.textContent = "Check official channels";
+    refreshNote.textContent = "Auto-refresh will retry in 2 min";
+  }
 }
 
 function renderRoleSelection() {
@@ -301,17 +462,10 @@ function renderProfessionalLogin() {
             <label>Password
               <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required minlength="8" /></span>
             </label>
-            <div class="login-action-row">
-              <button class="code-button" type="button" data-connect-telegram>Connect Telegram</button>
-              <button class="code-button" type="button" data-request-code>Send 6-digit code</button>
-            </div>
-            <label>Verification<input name="verification" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="Enter 6-digit code" required /></label>
-            <p class="note">${icon("info")} Professional accounts require approval before activation. Contact your agency administrator for access.</p>
+            <p class="note">${icon("info")} Sign in using the password created with your authorised agency email.</p>
             <button class="form-button" type="submit">Sign In</button>
             <div class="auth-support-links">
               <a href="#/signup/professional">Sign up for a professional account</a>
-              <a href="#/reset/professional">Forgot password?</a>
-              <a href="#/admin/login">Administrator approval</a>
             </div>
             <p class="form-status" role="status"></p>
           </form>
@@ -375,243 +529,6 @@ function renderProfessionalSignup() {
   document.querySelector("[data-professional-signup]").addEventListener("submit", submitProfessionalSignup);
 }
 
-function renderProfessionalReset() {
-  app.innerHTML = `
-    <div class="page auth-page">
-      ${header({ backHref: "#/login/professional" })}
-      <main class="center-stage signup-stage">
-        <section class="login-panel reset-panel" aria-labelledby="professional-reset-heading">
-          <div class="auth-heading">
-            <p class="eyebrow">Account recovery</p>
-            <h1 id="professional-reset-heading">Reset Password</h1>
-            <p>The reset code will be sent only to the Telegram account already linked to your professional account.</p>
-          </div>
-          <form class="login-form reset-form" data-professional-reset>
-            <label>Work email
-              <input name="email" type="email" placeholder="name@agency.gov.sg" autocomplete="email" required />
-            </label>
-            <button class="code-button" type="button" data-request-reset-code>Send Reset Code</button>
-            <label>Reset code
-              <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="Enter 6-digit code" required />
-            </label>
-            <label>New password
-              <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="At least 10 characters" autocomplete="new-password" required minlength="10" /></span>
-            </label>
-            <label>Confirm new password
-              <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password" required minlength="10" /></span>
-            </label>
-            <button class="form-button" type="submit">Update Password</button>
-            <p class="signup-line"><a href="#/login/professional">Return to professional login</a></p>
-            <p class="form-status" role="status"></p>
-          </form>
-        </section>
-      </main>
-    </div>
-  `;
-
-  const form = document.querySelector("[data-professional-reset]");
-  form.querySelector("[data-request-reset-code]").addEventListener("click", () => requestPasswordReset(form));
-  form.addEventListener("submit", submitPasswordReset);
-}
-
-function renderAdminLogin() {
-  app.innerHTML = `
-    <div class="page auth-page">
-      ${header({ backHref: "#/login/professional" })}
-      <main class="center-stage">
-        <section class="login-panel reset-panel" aria-labelledby="admin-login-heading">
-          <div class="auth-heading">
-            <p class="eyebrow">Restricted access</p>
-            <h1 id="admin-login-heading">Administrator Login</h1>
-            <p>Review professional account registrations and control platform access.</p>
-          </div>
-          <form class="login-form" data-admin-login>
-            <label>Admin email
-              <input name="email" type="email" placeholder="admin@quickaid.test" autocomplete="username" required />
-            </label>
-            <label>Password
-              <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter administrator password" autocomplete="current-password" required minlength="8" /></span>
-            </label>
-            <button class="form-button" type="submit">Sign In as Administrator</button>
-            <p class="form-status" role="status"></p>
-          </form>
-        </section>
-      </main>
-    </div>
-  `;
-
-  document.querySelector("[data-admin-login]").addEventListener("submit", submitAdminLogin);
-}
-
-async function submitAdminLogin(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const status = form.querySelector(".form-status");
-  const button = form.querySelector('button[type="submit"]');
-  const data = Object.fromEntries(new FormData(form).entries());
-  status.textContent = "Signing in...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/admin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to sign in.");
-      status.classList.add("error");
-      return;
-    }
-    localStorage.setItem("quickaid-admin-session", JSON.stringify(result.session));
-    window.location.hash = "#/admin/approvals";
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function renderAdminApprovals() {
-  const session = JSON.parse(localStorage.getItem("quickaid-admin-session") || "null");
-  if (!session?.token) {
-    window.location.hash = "#/admin/login";
-    return;
-  }
-
-  app.innerHTML = `
-    <div class="page admin-page">
-      <header class="admin-header">
-        <a class="brand" href="#/">
-          ${shieldIcon()}
-          <span><strong>QuickAid Admin</strong><small>Access governance</small></span>
-        </a>
-        <button class="secondary-button compact" type="button" data-admin-signout>Sign Out</button>
-      </header>
-      <main class="admin-main">
-        <section class="admin-title">
-          <div>
-            <p class="eyebrow">Professional access</p>
-            <h1>Account Approvals</h1>
-            <p>Review work identity and agency details before granting dashboard access.</p>
-          </div>
-          <span class="pending-count" data-pending-count>Loading</span>
-        </section>
-        <p class="form-status admin-status" role="status"></p>
-        <section class="approval-list" data-approval-list>
-          <p class="approval-empty">Loading pending registrations...</p>
-        </section>
-      </main>
-    </div>
-  `;
-
-  document.querySelector("[data-admin-signout]").addEventListener("click", adminSignOut);
-  await loadPendingProfessionals(session.token);
-}
-
-async function loadPendingProfessionals(token) {
-  const list = document.querySelector("[data-approval-list]");
-  const count = document.querySelector("[data-pending-count]");
-  const status = document.querySelector(".admin-status");
-
-  try {
-    const response = await fetch("/api/admin/professionals/pending", {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const result = await response.json();
-    if (response.status === 401) {
-      localStorage.removeItem("quickaid-admin-session");
-      window.location.hash = "#/admin/login";
-      return;
-    }
-    if (!response.ok) throw new Error(result.error || "Unable to load registrations.");
-
-    count.textContent = `${result.users.length} pending`;
-    list.innerHTML = result.users.length
-      ? result.users.map(adminApprovalCard).join("")
-      : `<div class="approval-empty"><strong>All caught up</strong><span>There are no professional registrations waiting for review.</span></div>`;
-
-    list.querySelectorAll("[data-approval-action]").forEach((button) => {
-      button.addEventListener("click", () => {
-        updateProfessionalStatus(button.dataset.userId, button.dataset.approvalAction, token);
-      });
-    });
-  } catch (error) {
-    count.textContent = "Unavailable";
-    status.textContent = error.message;
-    status.classList.add("error");
-    list.innerHTML = `<p class="approval-empty">Unable to load the approval queue.</p>`;
-  }
-}
-
-function adminApprovalCard(user) {
-  return `
-    <article class="approval-card">
-      <div class="approval-identity">
-        <span class="agency-badge">${escapeHtml(user.agency)}</span>
-        <h2>${escapeHtml(user.name)}</h2>
-        <a href="mailto:${escapeHtml(user.email)}">${escapeHtml(user.email)}</a>
-      </div>
-      <dl class="approval-details">
-        <div><dt>Agency</dt><dd>${escapeHtml(user.agency)}</dd></div>
-        <div><dt>Role / title</dt><dd>${escapeHtml(user.roleTitle)}</dd></div>
-        <div><dt>Submitted</dt><dd>${formatDateTime(user.createdAt)}</dd></div>
-      </dl>
-      <div class="approval-actions">
-        <button class="reject-button" type="button" data-approval-action="rejected" data-user-id="${user._id}">Reject</button>
-        <button class="approve-button" type="button" data-approval-action="approved" data-user-id="${user._id}">Approve</button>
-      </div>
-    </article>
-  `;
-}
-
-async function updateProfessionalStatus(userId, newStatus, token) {
-  const status = document.querySelector(".admin-status");
-  const buttons = document.querySelectorAll(`[data-user-id="${userId}"]`);
-  buttons.forEach((button) => {
-    button.disabled = true;
-  });
-  status.textContent = `${newStatus === "approved" ? "Approving" : "Rejecting"} account...`;
-  status.className = "form-status admin-status";
-
-  try {
-    const response = await fetch(`/api/admin/professionals/${userId}/status`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ status: newStatus })
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Unable to update account.");
-    status.textContent = result.message;
-    status.classList.add("success");
-    await loadPendingProfessionals(token);
-  } catch (error) {
-    status.textContent = error.message;
-    status.classList.add("error");
-    buttons.forEach((button) => {
-      button.disabled = false;
-    });
-  }
-}
-
-async function adminSignOut() {
-  const session = JSON.parse(localStorage.getItem("quickaid-admin-session") || "null");
-  if (session?.token) {
-    await fetch("/api/auth/admin/logout", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${session.token}` }
-    }).catch(() => {});
-  }
-  localStorage.removeItem("quickaid-admin-session");
-  window.location.hash = "#/admin/login";
-}
-
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -647,72 +564,6 @@ async function submitProfessionalSignup(event) {
     form.reset();
     status.textContent = result.message;
     status.classList.add("success");
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function requestPasswordReset(form) {
-  const status = form.querySelector(".form-status");
-  const button = form.querySelector("[data-request-reset-code]");
-  const email = form.elements.email.value;
-  status.textContent = "Sending reset code...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/professional/reset/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to send reset code.");
-      status.classList.add("error");
-      return;
-    }
-    status.textContent = result.message;
-    status.classList.add("success");
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function submitPasswordReset(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const status = form.querySelector(".form-status");
-  const button = form.querySelector('button[type="submit"]');
-  const data = Object.fromEntries(new FormData(form).entries());
-  status.textContent = "Updating password...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/professional/reset/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to reset password.");
-      status.classList.add("error");
-      return;
-    }
-    form.reset();
-    status.textContent = result.message;
-    status.classList.add("success");
-    window.setTimeout(() => {
-      window.location.hash = "#/login/professional";
-    }, 1000);
   } catch (error) {
     status.textContent = "Server unavailable. Check that QuickAid is running.";
     status.classList.add("error");
@@ -855,26 +706,10 @@ async function submitVolunteerSignup(event) {
 function bindLoginForm() {
   const form = document.querySelector(".login-form");
   const google = document.querySelector("[data-google]");
-  const requestCode = document.querySelector("[data-request-code]");
-  const connectTelegram = document.querySelector("[data-connect-telegram]");
 
   if (google) {
     google.addEventListener("click", () => {
       submitLogin("public", { provider: "google" });
-    });
-  }
-
-  if (requestCode) {
-    requestCode.addEventListener("click", () => {
-      const data = Object.fromEntries(new FormData(form).entries());
-      requestProfessionalCode(data);
-    });
-  }
-
-  if (connectTelegram) {
-    connectTelegram.addEventListener("click", () => {
-      const data = Object.fromEntries(new FormData(form).entries());
-      connectProfessionalTelegram(data);
     });
   }
 
@@ -884,77 +719,6 @@ function bindLoginForm() {
     const data = Object.fromEntries(new FormData(form).entries());
     submitLogin(role, data);
   });
-}
-
-async function connectProfessionalTelegram(payload) {
-  const status = document.querySelector(".form-status");
-  const button = document.querySelector("[data-connect-telegram]");
-  status.textContent = "Preparing Telegram connection...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/telegram/link-token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: payload.email,
-        password: payload.password
-      })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to connect Telegram.");
-      status.classList.add("error");
-      return;
-    }
-    if (!result.connectUrl) {
-      status.textContent = "Telegram bot username is missing. Add TELEGRAM_BOT_USERNAME to .env.";
-      status.classList.add("error");
-      return;
-    }
-    status.textContent = "Opening Telegram. Tap Start in the bot to finish linking.";
-    status.classList.add("success");
-    window.open(result.connectUrl, "_blank", "noopener");
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function requestProfessionalCode(payload) {
-  const status = document.querySelector(".form-status");
-  const button = document.querySelector("[data-request-code]");
-  status.textContent = "Generating verification code...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/professional/request-code", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: payload.email,
-        password: payload.password
-      })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to generate code.");
-      status.classList.add("error");
-      return;
-    }
-
-    status.textContent = result.message;
-    status.classList.add("success");
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
 }
 
 async function submitLogin(role, payload) {
@@ -988,7 +752,21 @@ async function submitLogin(role, payload) {
 }
 
 async function renderDashboard() {
-  const session = JSON.parse(localStorage.getItem("quickaid-session") || "null");
+  let session;
+  try {
+    const response = await fetch("/api/auth/session");
+    const result = await response.json();
+    if (!response.ok) {
+      localStorage.removeItem("quickaid-session");
+      window.location.hash = "#/login";
+      return;
+    }
+    session = result.session;
+    localStorage.setItem("quickaid-session", JSON.stringify(session));
+  } catch (error) {
+    app.innerHTML = `<p class="page-load-error">Unable to verify your session. Check that QuickAid is running.</p>`;
+    return;
+  }
   const isProfessional = session?.role === "professional";
   emergencySpacesLoaded = false;
   emergencySpacesState = [];
@@ -1021,7 +799,9 @@ async function renderDashboard() {
         <header class="ops-header">
           <div>
             <div class="ops-title-row">
-              <span class="hamburger-lines" aria-hidden="true"></span>
+              <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
+                <span class="hamburger-lines" aria-hidden="true"></span>
+              </button>
               <h1>AI-assisted national resource</h1>
             </div>
             <p>Real-time emergency overview</p>
@@ -1029,15 +809,29 @@ async function renderDashboard() {
           <div class="ops-actions">
             <span class="ops-live">${icon("activity")} Live</span>
             <span class="updated-pill">Last Updated : 5:00 PM</span>
-            <a class="secondary-button compact" href="#/flood-map">${icon("alert")} Live Flood Map</a>
-            <a class="secondary-button compact" href="#/risk-prediction">${icon("activity")} Risk Prediction</a>
-            <a class="secondary-button compact" href="#/analytics">${icon("barChart")} Analytics</a>
-            ${dashboardSimulationAction()}
-            ${dashboardEmergencySpacesAction()}
-            <button class="secondary-button compact" type="button" data-open-volunteer-dispatch>${icon("users")} Volunteer Dispatch</button>
             <button class="secondary-button compact" data-signout>Sign Out</button>
           </div>
         </header>
+
+        <div class="ops-menu-backdrop" data-ops-menu-backdrop hidden></div>
+        <aside class="ops-navigation" data-ops-menu aria-hidden="true" aria-label="Dashboard navigation">
+          <div class="ops-navigation-header">
+            <div>
+              <strong>QuickAid Operations</strong>
+              <span>Professional workspace</span>
+            </div>
+            <button class="ops-menu-close" type="button" data-close-ops-menu aria-label="Close dashboard navigation">${icon("close")}</button>
+          </div>
+          <nav class="ops-navigation-links">
+            <button class="active" type="button" data-dashboard-overview>${icon("activity")}<span><strong>Overview</strong><small>Live national resource dashboard</small></span></button>
+            <a href="#/flood-map">${icon("mapPin")}<span><strong>Live Flood Map</strong><small>View active flood locations</small></span></a>
+            <a href="#/evacuation-routing">${icon("arrowRight")}<span><strong>Evacuation Routing</strong><small>Plan routes around live blockages</small></span></a>
+            <a href="#/risk-prediction">${icon("activity")}<span><strong>Risk Prediction</strong><small>Review live API and DB report risk scores</small></span></a>
+            <button type="button" data-open-simulator>${icon("alert")}<span><strong>Incident Simulator</strong><small>Run predefined response scenarios</small></span></button>
+            <button type="button" data-open-emergency-spaces>${icon("building")}<span><strong>Emergency Spaces</strong><small>Review overflow shelter capacity</small></span></button>
+            <button type="button" data-open-volunteer-dispatch>${icon("users")}<span><strong>Volunteer Dispatch</strong><small>Match and deploy volunteers</small></span></button>
+          </nav>
+        </aside>
 
         <section class="ops-alert">
           ${icon("alert")}
@@ -1059,10 +853,12 @@ async function renderDashboard() {
                 <div id="onemap-dashboard-map" class="onemap-dashboard-map">
                   <span>Loading OneMap...</span>
                 </div>
-                <div class="map-legend">
-                  <span class="incident-map-marker fire legend-marker"><span></span></span> Fire
-                  <span class="incident-map-marker flood legend-marker"><span></span></span> Flood
-                </div>
+                <ul class="flood-severity-legend dashboard-map-legend" aria-label="Flood severity legend">
+                  ${SEVERITY_ORDER.map((level) => `<li><i style="background:${severityColor(level)}"></i>${level}</li>`).join("")}
+                </ul>
+                <ul class="dengue-severity-legend dashboard-map-legend" aria-label="Dengue cluster legend">
+                  ${DENGUE_BUCKETS.map((bucket) => `<li><i style="background:${bucket.color}"></i>${bucket.label}</li>`).join("")}
+                </ul>
               </div>
             </section>
 
@@ -1158,14 +954,55 @@ async function renderDashboard() {
     </div>
   `;
 
-  document.querySelector("[data-signout]").addEventListener("click", () => {
+  const opsMenu = document.querySelector("[data-ops-menu]");
+  const opsMenuBackdrop = document.querySelector("[data-ops-menu-backdrop]");
+  const opsMenuButton = document.querySelector("[data-open-ops-menu]");
+
+  function closeOpsMenu() {
+    opsMenu.classList.remove("open");
+    opsMenu.setAttribute("aria-hidden", "true");
+    opsMenuBackdrop.hidden = true;
+    opsMenuButton.setAttribute("aria-expanded", "false");
+  }
+
+  function openOpsMenu() {
+    opsMenu.classList.add("open");
+    opsMenu.setAttribute("aria-hidden", "false");
+    opsMenuBackdrop.hidden = false;
+    opsMenuButton.setAttribute("aria-expanded", "true");
+    document.querySelector("[data-close-ops-menu]").focus();
+  }
+
+  opsMenuButton.addEventListener("click", openOpsMenu);
+  document.querySelector("[data-close-ops-menu]").addEventListener("click", closeOpsMenu);
+  opsMenuBackdrop.addEventListener("click", closeOpsMenu);
+
+  opsMenuKeydownHandler = (event) => {
+    if (event.key === "Escape" && opsMenu.classList.contains("open")) closeOpsMenu();
+  };
+  document.addEventListener("keydown", opsMenuKeydownHandler);
+
+  document.querySelector("[data-dashboard-overview]").addEventListener("click", () => {
+    closeOpsMenu();
+    document.querySelector(".ops-alert").scrollIntoView({ behavior: "smooth" });
+  });
+
+  document.querySelector("[data-signout]").addEventListener("click", async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     localStorage.removeItem("quickaid-session");
     window.location.hash = "#/";
   });
 
-  document.querySelector("[data-open-simulator]").addEventListener("click", showIncidentSimulatorSection);
-  document.querySelector("[data-open-emergency-spaces]").addEventListener("click", showEmergencySpacesSection);
+  document.querySelector("[data-open-simulator]").addEventListener("click", () => {
+    closeOpsMenu();
+    showIncidentSimulatorSection();
+  });
+  document.querySelector("[data-open-emergency-spaces]").addEventListener("click", () => {
+    closeOpsMenu();
+    showEmergencySpacesSection();
+  });
   document.querySelector("[data-open-volunteer-dispatch]").addEventListener("click", () => {
+    closeOpsMenu();
     showVolunteerDispatchSection(session);
   });
   document.querySelector("[data-scenario-select]").addEventListener("change", (event) => {
@@ -1992,6 +1829,9 @@ const DENGUE_BUCKETS = [
 
 let floodMapTimer = null;
 let dengueMapTimer = null;
+let evacuationMapTimer = null;
+let publicStatusTimer = null;
+let oneMapLeafletBundle = null;
 
 function severityColor(severity) {
   return SEVERITY_COLORS[severity] || "#5e655f";
@@ -2096,6 +1936,10 @@ function ringToLatLngs(ring) {
   return ring.map(([lng, lat]) => [lat, lng]);
 }
 
+function lineStringToLatLngs(coordinates) {
+  return coordinates.map(([lng, lat]) => [lat, lng]);
+}
+
 function geoJsonFeatureToLayer(feature, options) {
   if (typeof L.geoJSON === "function") {
     return L.geoJSON(feature, options);
@@ -2131,9 +1975,22 @@ function floodListItem({ record, reading }, index) {
   `;
 }
 
+function addOneMapTileLayer(map) {
+  return L.tileLayer("https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png", {
+    detectRetina: true,
+    maxZoom: 19,
+    minZoom: 11,
+    attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
+  }).addTo(map);
+}
+
 async function initOneMapDashboard() {
   const mapEl = document.querySelector("#onemap-dashboard-map");
   if (!mapEl) return;
+
+  // OneMap's bundle replaces window.L with its own Leaflet build, which would
+  // break other pages relying on the standard Leaflet loaded in index.html.
+  const standardLeaflet = window.L;
 
   try {
     await loadStylesheet("https://www.onemap.gov.sg/web-assets/libs/leaflet/leaflet.css");
@@ -2144,17 +2001,56 @@ async function initOneMapDashboard() {
     const tileJson = await tileJsonResponse.json();
     mapEl.innerHTML = "";
 
-    const sw = L.latLng(1.144, 103.535);
-    const ne = L.latLng(1.494, 104.502);
-    const bounds = L.latLngBounds(sw, ne);
-    const map = L.TileJSON.createMap("onemap-dashboard-map", tileJson);
-    map.setMaxBounds(bounds);
-    map.setView(L.latLng(1.345, 103.705), 11);
-    map.attributionControl.setPrefix('<img src="https://www.onemap.gov.sg/web-assets/images/logo/om_logo.png" style="height:20px;width:20px;"/>&nbsp;<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a>&nbsp;&copy;&nbsp;contributors&nbsp;&#124;&nbsp;<a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority</a>');
+    const map = L.map("onemap-dashboard-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
+    addOneMapTileLayer(map);
 
-    addIncidentMarker(map, [1.344, 103.704], "flood", "Flood - Jurong West");
-    addIncidentMarker(map, [1.333, 103.742], "flood", "Flood - Jurong East");
-    addIncidentMarker(map, [1.305, 103.833], "fire", "Fire - TPE response");
+    const floodLayer = L.layerGroup().addTo(map);
+    const dengueLayer = L.layerGroup().addTo(map);
+
+    const [floodResponse, dengueResponse] = await Promise.all([
+      fetch("/api/flood-alerts"),
+      fetch("/api/dengue-clusters")
+    ]);
+    const floodPayload = await floodResponse.json();
+    const denguePayload = await dengueResponse.json();
+    if (!floodResponse.ok) throw new Error(floodPayload.error || "Unable to load flood alerts.");
+    if (!dengueResponse.ok) throw new Error(denguePayload.error || "Unable to load dengue clusters.");
+
+    const bounds = L.latLngBounds([]);
+
+    activeFloodReadings(floodPayload.records || []).forEach((entry) => {
+      const [lat, lng, radiusKm] = entry.reading.area.circle;
+      const color = severityColor(entry.reading.severity);
+      const circle = L.circle([lat, lng], {
+        radius: Math.max(radiusKm, 0.15) * 1000,
+        color,
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.22
+      })
+        .bindPopup(floodPopup(entry))
+        .addTo(floodLayer);
+      bounds.extend(circle.getBounds());
+    });
+
+    (denguePayload.geojson?.features || []).forEach((feature) => {
+      const info = dengueClusterInfo(feature);
+      const layer = geoJsonFeatureToLayer(feature, {
+        style: () => ({
+          color: dengueColor(info.caseSize),
+          weight: 1.5,
+          fillColor: dengueColor(info.caseSize),
+          fillOpacity: 0.35
+        })
+      })
+        .bindPopup(denguePopup(info))
+        .addTo(dengueLayer);
+      if (layer.getBounds) bounds.extend(layer.getBounds());
+    });
+
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 13 });
+    }
 
     window.setTimeout(() => map.invalidateSize(), 100);
     window.addEventListener("resize", () => map.invalidateSize());
@@ -2240,12 +2136,7 @@ async function renderFloodMap() {
   `;
 
   const map = L.map("flood-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
-  L.tileLayer("https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png", {
-    detectRetina: true,
-    maxZoom: 19,
-    minZoom: 11,
-    attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
-  }).addTo(map);
+  addOneMapTileLayer(map);
 
   const markerLayer = L.layerGroup().addTo(map);
   const dengueLayer = L.layerGroup().addTo(map);
@@ -2369,6 +2260,580 @@ async function renderFloodMap() {
   dengueMapTimer = window.setInterval(refreshDengue, 5 * 60_000);
 }
 
+const EVACUATION_POLL_MS = 2 * 60_000;
+
+function blockageColor(type) {
+  if (type === "flood") return "#0f766e";
+  if (type === "incident") return "#c53d32";
+  return "#a92525";
+}
+
+function blockagePopup({ type, label }) {
+  const title = type === "flood" ? "Flood" : type === "incident" ? "Traffic Incident" : "Dengue Cluster";
+  return `
+    <div class="flood-popup">
+      <span class="severity-pill" style="background:${blockageColor(type)}">${title}</span>
+      <p>${label || "Hazard area"}</p>
+    </div>
+  `;
+}
+
+function evacuationRouteSummary({ baseline, rerouted, demo, hazards }) {
+  const baseSummary = baseline?.features?.[0]?.properties?.summary;
+  const reroutedSummary = rerouted?.features?.[0]?.properties?.summary;
+  if (!baseSummary || !reroutedSummary) return "";
+
+  const fmt = (summary) =>
+    `${(summary.distance / 1000).toFixed(1)} km · ${Math.round(summary.duration / 60)} min`;
+
+  const fallbackLayers = hazards
+    ? Object.entries(hazards)
+        .filter(([, layer]) => layer?.source === "demo-fallback")
+        .map(([key]) => key)
+    : [];
+
+  return `
+    <article class="flood-alert-card evac-summary-card">
+      <div>
+        <strong>Normal route</strong>
+        <p>${fmt(baseSummary)}</p>
+      </div>
+    </article>
+    <article class="flood-alert-card evac-summary-card">
+      <div>
+        <strong>Re-routed (avoiding selected hazards)</strong>
+        <p>${fmt(reroutedSummary)}</p>
+      </div>
+    </article>
+    ${demo ? `<p class="map-empty">Showing demo route data.</p>` : ""}
+    ${fallbackLayers.length ? `<p class="map-empty">Using cached/demo data for: ${fallbackLayers.join(", ")}.</p>` : ""}
+  `;
+}
+
+function evacGeolocationErrorMessage(error) {
+  if (error.code === error.PERMISSION_DENIED) {
+    return "Location permission denied. Enter an address manually instead.";
+  }
+  if (error.code === error.POSITION_UNAVAILABLE) {
+    return "Your location is unavailable right now. Enter an address manually instead.";
+  }
+  if (error.code === error.TIMEOUT) {
+    return "Getting your location timed out. Enter an address manually instead.";
+  }
+  return "Unable to get your location. Enter an address manually instead.";
+}
+
+async function renderEvacuationRouting() {
+  app.innerHTML = `
+    <div class="page flood-map-page">
+      ${header({ backHref: "#/dashboard" })}
+      <main class="flood-map-shell">
+        <section class="dashboard-title">
+          <div>
+            <p class="eyebrow">OneMap basemap · openrouteservice · live flood, dengue & traffic hazards</p>
+            <h1>Dynamic Evacuation Routing</h1>
+          </div>
+          <p class="map-updated" data-evac-updated>Set a start and destination, or click the map to choose points.</p>
+        </section>
+        <div class="flood-map-layout">
+          <div class="flood-map-canvas">
+            <div id="evacuation-map" aria-label="Map for planning an evacuation route around current hazards"></div>
+            <div class="map-layer-toggle evac-hazard-toggles" aria-label="Hazard layers">
+              <p class="evac-toggle-heading">Hazard layers</p>
+              <div class="evac-hazard-row">
+                <span>Flood alerts</span>
+                <label><input type="checkbox" data-evac-show="flood" checked /> Show</label>
+                <label><input type="checkbox" data-evac-avoid="flood" checked /> Avoid</label>
+              </div>
+              <div class="evac-hazard-row">
+                <span>Road incidents</span>
+                <label><input type="checkbox" data-evac-show="incidents" checked /> Show</label>
+                <label><input type="checkbox" data-evac-avoid="incidents" checked /> Avoid</label>
+              </div>
+              <div class="evac-hazard-row">
+                <span>Dengue clusters</span>
+                <label><input type="checkbox" data-evac-show="dengue" checked /> Show</label>
+                <label><input type="checkbox" data-evac-avoid="dengue" /> Avoid</label>
+              </div>
+            </div>
+            <div class="map-layer-toggle evac-controls" aria-label="Routing controls">
+              <label><input type="checkbox" data-evac-demo /> Demo mode</label>
+              <button type="button" class="secondary-button compact" data-evac-calculate disabled>Find Safe Route</button>
+              <button type="button" class="secondary-button compact" data-evac-clear>Clear</button>
+            </div>
+            <ul class="dengue-severity-legend evac-legend" aria-label="Evacuation route legend">
+              <li><i style="background:#1d4ed8"></i>Normal route</li>
+              <li><i style="background:#c53d32"></i>Re-routed</li>
+              <li><i style="background:#0f766e"></i>Flood alert</li>
+              <li><i style="background:#a92525"></i>Dengue cluster</li>
+            </ul>
+          </div>
+          <aside class="flood-alert-rail" aria-label="Route planner and hazards">
+            <h2>Plan a route</h2>
+            <div class="evac-location-form">
+              <div class="evac-location-field">
+                <label for="evac-start-input">Start</label>
+                <div class="evac-input-row">
+                  <input type="text" id="evac-start-input" data-evac-input="start" placeholder="Address, postal code, or building" />
+                  <button type="button" class="secondary-button compact" data-evac-search="start">Search</button>
+                </div>
+                <button type="button" class="secondary-button compact evac-location-button" data-evac-locate="start">${icon("mapPin")} Use my location</button>
+                <ul class="evac-geocode-results" data-evac-results="start" hidden></ul>
+                <p class="evac-field-status" data-evac-status="start"></p>
+              </div>
+              <div class="evac-location-field">
+                <label for="evac-end-input">Destination</label>
+                <div class="evac-input-row">
+                  <input type="text" id="evac-end-input" data-evac-input="end" placeholder="Address, postal code, or building" />
+                  <button type="button" class="secondary-button compact" data-evac-search="end">Search</button>
+                </div>
+                <button type="button" class="secondary-button compact evac-location-button" data-evac-locate="end">${icon("mapPin")} Use my location</button>
+                <ul class="evac-geocode-results" data-evac-results="end" hidden></ul>
+                <p class="evac-field-status" data-evac-status="end"></p>
+              </div>
+            </div>
+            <h2>Route Summary</h2>
+            <div class="flood-alert-list" data-evac-summary><p class="map-empty">Set a start and destination, then press Find Safe Route.</p></div>
+            <h2>Active Hazards</h2>
+            <div class="flood-alert-list" data-evac-hazards><p class="map-empty">Loading…</p></div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  `;
+
+  const map = L.map("evacuation-map", { scrollWheelZoom: true }).setView([1.3521, 103.8198], 12);
+  L.tileLayer("https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png", {
+    detectRetina: true,
+    maxZoom: 19,
+    minZoom: 11,
+    attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
+  }).addTo(map);
+
+  const floodLayer = L.layerGroup().addTo(map);
+  const incidentLayer = L.layerGroup().addTo(map);
+  const dengueLayer = L.layerGroup().addTo(map);
+  const routeLayer = L.layerGroup().addTo(map);
+  const markerLayer = L.layerGroup().addTo(map);
+  const hazardLayers = { flood: floodLayer, incidents: incidentLayer, dengue: dengueLayer };
+
+  const evac = {
+    start: null,
+    end: null,
+    hazards: null,
+    show: { flood: true, incidents: true, dengue: true },
+    avoid: { flood: true, incidents: true, dengue: false }
+  };
+
+  let startMarker = null;
+  let endMarker = null;
+
+  const updatedLabel = document.querySelector("[data-evac-updated]");
+  const summaryEl = document.querySelector("[data-evac-summary]");
+  const hazardsEl = document.querySelector("[data-evac-hazards]");
+  const demoToggle = document.querySelector("[data-evac-demo]");
+  const calculateButton = document.querySelector("[data-evac-calculate]");
+
+  function placeMarker(latlng, kind) {
+    const color = kind === "start" ? "#0f766e" : "#c53d32";
+    const marker = L.circleMarker(latlng, {
+      radius: 9,
+      color,
+      weight: 2,
+      fillColor: color,
+      fillOpacity: 0.85
+    })
+      .bindPopup(kind === "start" ? "Start" : "Destination")
+      .addTo(markerLayer);
+
+    if (kind === "start") {
+      if (startMarker) markerLayer.removeLayer(startMarker);
+      startMarker = marker;
+    } else {
+      if (endMarker) markerLayer.removeLayer(endMarker);
+      endMarker = marker;
+    }
+    return marker;
+  }
+
+  function updateCalculateButtonState() {
+    calculateButton.disabled = !(evac.start && evac.end);
+  }
+
+  function resetSummary() {
+    summaryEl.innerHTML = `<p class="map-empty">Set a start and destination, then press Find Safe Route.</p>`;
+  }
+
+  // OneMap/geolocation give {lat, lng}; ORS/GeoJSON need [lng, lat] — converted in lineStringToLatLngs and on the backend.
+  async function reverseGeocodeToInput(kind, coord) {
+    const input = document.querySelector(`[data-evac-input="${kind}"]`);
+    if (!input) return;
+    try {
+      const response = await fetch(`/api/onemap/revgeocode?lat=${coord.lat}&lng=${coord.lng}`);
+      const payload = await response.json();
+      const address = payload.address;
+      const label = address ? [address.block, address.road, address.building].filter(Boolean).join(" ").trim() : "";
+      input.value = label || `${coord.lat.toFixed(5)}, ${coord.lng.toFixed(5)}`;
+    } catch (error) {
+      input.value = `${coord.lat.toFixed(5)}, ${coord.lng.toFixed(5)}`;
+    }
+  }
+
+  function focusOnPoints() {
+    if (evac.start && evac.end) {
+      const bounds = L.latLngBounds([evac.start.lat, evac.start.lng], [evac.end.lat, evac.end.lng]);
+      if (typeof map.flyToBounds === "function") {
+        map.flyToBounds(bounds, { duration: 0.6, padding: [60, 60] });
+      } else {
+        map.fitBounds(bounds, { padding: [60, 60] });
+      }
+    } else if (evac.start) {
+      map.flyTo([evac.start.lat, evac.start.lng], 15, { duration: 0.6 });
+    } else if (evac.end) {
+      map.flyTo([evac.end.lat, evac.end.lng], 15, { duration: 0.6 });
+    }
+  }
+
+  map.on("click", (event) => {
+    if (!evac.start || (evac.start && evac.end)) {
+      evac.start = { lat: event.latlng.lat, lng: event.latlng.lng };
+      evac.end = null;
+      if (endMarker) {
+        markerLayer.removeLayer(endMarker);
+        endMarker = null;
+      }
+      placeMarker(event.latlng, "start");
+      routeLayer.clearLayers();
+      resetSummary();
+      updatedLabel.textContent = "Start point set. Click the map again to set a destination, or use the search fields.";
+      reverseGeocodeToInput("start", evac.start);
+      updateCalculateButtonState();
+      return;
+    }
+
+    evac.end = { lat: event.latlng.lat, lng: event.latlng.lng };
+    placeMarker(event.latlng, "end");
+    updatedLabel.textContent = "Start and destination set. Press Find Safe Route.";
+    reverseGeocodeToInput("end", evac.end);
+    updateCalculateButtonState();
+  });
+
+  document.querySelector("[data-evac-clear]").addEventListener("click", () => {
+    evac.start = null;
+    evac.end = null;
+    startMarker = null;
+    endMarker = null;
+    markerLayer.clearLayers();
+    routeLayer.clearLayers();
+    resetSummary();
+    updatedLabel.textContent = "Set a start and destination, or click the map to choose points.";
+    document.querySelectorAll("[data-evac-input]").forEach((input) => {
+      input.value = "";
+    });
+    document.querySelectorAll("[data-evac-status]").forEach((status) => {
+      status.textContent = "";
+    });
+    document.querySelectorAll("[data-evac-results]").forEach((list) => {
+      list.hidden = true;
+      list.innerHTML = "";
+    });
+    updateCalculateButtonState();
+  });
+
+  function applyGeocodeResult(kind, result) {
+    const coord = { lat: result.lat, lng: result.lng };
+    evac[kind] = coord;
+    placeMarker(L.latLng(coord.lat, coord.lng), kind);
+    routeLayer.clearLayers();
+    resetSummary();
+    updateCalculateButtonState();
+    focusOnPoints();
+    updatedLabel.textContent =
+      evac.start && evac.end
+        ? "Start and destination set. Press Find Safe Route."
+        : `${kind === "start" ? "Start" : "Destination"} point set.`;
+  }
+
+  async function geocodeAddress(kind) {
+    const input = document.querySelector(`[data-evac-input="${kind}"]`);
+    const status = document.querySelector(`[data-evac-status="${kind}"]`);
+    const resultsEl = document.querySelector(`[data-evac-results="${kind}"]`);
+    const query = input.value.trim();
+    resultsEl.hidden = true;
+    resultsEl.innerHTML = "";
+
+    if (!query) {
+      status.textContent = "Enter an address, postal code, or building name.";
+      return;
+    }
+
+    status.textContent = "Searching…";
+    try {
+      const response = await fetch(`/api/onemap/search?q=${encodeURIComponent(query)}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Search failed.");
+
+      const results = payload.results || [];
+      if (!results.length) {
+        status.textContent = "No matching locations found. Try a different search.";
+        return;
+      }
+
+      if (results.length === 1) {
+        applyGeocodeResult(kind, results[0]);
+        status.textContent = `Set to ${results[0].address || results[0].name}.`;
+        return;
+      }
+
+      resultsEl.hidden = false;
+      resultsEl.innerHTML = results
+        .slice(0, 6)
+        .map((result, index) => `<li><button type="button" data-evac-result="${index}">${result.address || result.name}</button></li>`)
+        .join("");
+      resultsEl.querySelectorAll("[data-evac-result]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const result = results[Number(button.dataset.evacResult)];
+          applyGeocodeResult(kind, result);
+          resultsEl.hidden = true;
+          resultsEl.innerHTML = "";
+          status.textContent = `Set to ${result.address || result.name}.`;
+        });
+      });
+      status.textContent = `Found ${results.length} matches — choose one below.`;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  }
+
+  function useMyLocation(kind) {
+    const status = document.querySelector(`[data-evac-status="${kind}"]`);
+    if (!navigator.geolocation) {
+      status.textContent = "Geolocation is not supported by this browser. Enter an address instead.";
+      return;
+    }
+
+    status.textContent = "Getting your location…";
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const coord = { lat: position.coords.latitude, lng: position.coords.longitude };
+        applyGeocodeResult(kind, coord);
+        status.textContent = "Using your current location.";
+        await reverseGeocodeToInput(kind, coord);
+      },
+      (error) => {
+        status.textContent = evacGeolocationErrorMessage(error);
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 }
+    );
+  }
+
+  document.querySelectorAll("[data-evac-search]").forEach((button) => {
+    button.addEventListener("click", () => geocodeAddress(button.dataset.evacSearch));
+  });
+  document.querySelectorAll("[data-evac-input]").forEach((input) => {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        geocodeAddress(input.dataset.evacInput);
+      }
+    });
+  });
+  document.querySelectorAll("[data-evac-locate]").forEach((button) => {
+    button.addEventListener("click", () => useMyLocation(button.dataset.evacLocate));
+  });
+
+  function applyShowToggles() {
+    Object.entries(hazardLayers).forEach(([key, layer]) => {
+      if (evac.show[key]) {
+        if (!map.hasLayer(layer)) map.addLayer(layer);
+      } else if (map.hasLayer(layer)) {
+        map.removeLayer(layer);
+      }
+    });
+  }
+
+  function renderHazardLayers() {
+    const hazards = evac.hazards;
+    if (!hazards) return;
+
+    floodLayer.clearLayers();
+    (hazards.flood?.points || []).forEach((point) => {
+      L.circle([point.lat, point.lng], {
+        radius: 250,
+        color: blockageColor("flood"),
+        weight: 1.5,
+        fillColor: blockageColor("flood"),
+        fillOpacity: 0.25
+      })
+        .bindPopup(blockagePopup(point))
+        .addTo(floodLayer);
+    });
+
+    incidentLayer.clearLayers();
+    (hazards.incidents?.points || []).forEach((point) => {
+      L.circle([point.lat, point.lng], {
+        radius: 250,
+        color: blockageColor("incident"),
+        weight: 1.5,
+        fillColor: blockageColor("incident"),
+        fillOpacity: 0.25
+      })
+        .bindPopup(blockagePopup(point))
+        .addTo(incidentLayer);
+    });
+
+    dengueLayer.clearLayers();
+    (hazards.dengue?.geojson?.features || []).forEach((feature) => {
+      const info = dengueClusterInfo(feature);
+      geoJsonFeatureToLayer(feature, {
+        style: () => ({
+          color: dengueColor(info.caseSize),
+          weight: 1.5,
+          fillColor: dengueColor(info.caseSize),
+          fillOpacity: 0.3
+        })
+      })
+        .bindPopup(denguePopup(info))
+        .addTo(dengueLayer);
+    });
+
+    applyShowToggles();
+  }
+
+  function renderHazardList() {
+    const hazards = evac.hazards;
+    if (!hazards) return;
+
+    const items = [];
+    (hazards.flood?.points || []).forEach((point) => items.push({ type: "flood", title: "Flood alert", label: point.label }));
+    (hazards.incidents?.points || []).forEach((point) => items.push({ type: "incident", title: "Traffic incident", label: point.label }));
+    (hazards.dengue?.geojson?.features || []).forEach((feature) => {
+      const info = dengueClusterInfo(feature);
+      items.push({
+        type: "dengue",
+        title: "Dengue cluster",
+        label: `${info.locality} — ${info.caseSize} case${info.caseSize === 1 ? "" : "s"}`
+      });
+    });
+
+    hazardsEl.innerHTML = items.length
+      ? items
+          .map(
+            (item) => `
+              <article class="flood-alert-card">
+                <span class="severity-pill" style="background:${blockageColor(item.type)}">${item.title}</span>
+                <div><p>${item.label || ""}</p></div>
+              </article>
+            `
+          )
+          .join("")
+      : `<p class="map-empty">No active hazards reported right now.</p>`;
+  }
+
+  async function refreshHazards() {
+    try {
+      const demo = demoToggle.checked;
+      const response = await fetch(`/api/evacuation/hazards?demo=${demo}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to load hazard data.");
+
+      evac.hazards = payload;
+      renderHazardLayers();
+      renderHazardList();
+    } catch (error) {
+      hazardsEl.innerHTML = `<p class="map-empty error">${error.message}</p>`;
+    }
+  }
+
+  async function calculateRoute() {
+    if (!evac.start || !evac.end) {
+      updatedLabel.textContent = "Set a start and destination first.";
+      return;
+    }
+
+    summaryEl.innerHTML = `<p class="map-empty">Calculating route…</p>`;
+
+    try {
+      const response = await fetch("/api/evacuation/route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start: evac.start, end: evac.end, demo: demoToggle.checked, avoid: evac.avoid })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to compute a route.");
+
+      evac.hazards = payload.hazards;
+      renderHazardLayers();
+      renderHazardList();
+      routeLayer.clearLayers();
+
+      const baselineCoords = payload.baseline?.features?.[0]?.geometry?.coordinates;
+      const reroutedCoords = payload.rerouted?.features?.[0]?.geometry?.coordinates;
+
+      let bounds = null;
+      if (baselineCoords) {
+        const latlngs = lineStringToLatLngs(baselineCoords);
+        const line = L.polyline(latlngs, { color: "#1d4ed8", weight: 5, opacity: 0.85 }).addTo(routeLayer);
+        bounds = line.getBounds();
+      }
+      if (reroutedCoords) {
+        const latlngs = lineStringToLatLngs(reroutedCoords);
+        const line = L.polyline(latlngs, {
+          color: "#c53d32",
+          weight: 4,
+          opacity: 0.9,
+          dashArray: "8 8"
+        }).addTo(routeLayer);
+        bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
+      }
+
+      if (bounds && bounds.isValid()) {
+        if (typeof map.flyToBounds === "function") {
+          map.flyToBounds(bounds, { duration: 0.6, padding: [40, 40] });
+        } else {
+          map.fitBounds(bounds, { padding: [40, 40] });
+        }
+      }
+
+      summaryEl.innerHTML =
+        evacuationRouteSummary(payload) ||
+        `<p class="map-empty">Route computed${payload.demo ? " (demo data)" : ""}.</p>`;
+
+      updatedLabel.textContent = `Last updated ${formatDateTime(payload.fetchedAt)}${payload.demo ? " · demo data" : ""}`;
+    } catch (error) {
+      summaryEl.innerHTML = `<p class="map-empty error">${error.message}</p>`;
+    }
+  }
+
+  calculateButton.addEventListener("click", calculateRoute);
+
+  document.querySelectorAll("[data-evac-show]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      evac.show[checkbox.dataset.evacShow] = checkbox.checked;
+      applyShowToggles();
+    });
+  });
+
+  document.querySelectorAll("[data-evac-avoid]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      evac.avoid[checkbox.dataset.evacAvoid] = checkbox.checked;
+      if (evac.start && evac.end) calculateRoute();
+    });
+  });
+
+  demoToggle.addEventListener("change", () => {
+    refreshHazards();
+    if (evac.start && evac.end) calculateRoute();
+  });
+
+  updateCalculateButtonState();
+  await refreshHazards();
+  evacuationMapTimer = window.setInterval(async () => {
+    await refreshHazards();
+    if (evac.start && evac.end) await calculateRoute();
+  }, EVACUATION_POLL_MS);
+}
+
 async function renderRiskPrediction() {
   app.innerHTML = `
     <div class="page risk-page">
@@ -2383,6 +2848,36 @@ async function renderRiskPrediction() {
             <button id="tab-api" class="secondary-button compact">Live API</button>
             <button id="tab-db" class="secondary-button compact">DB Reports</button>
             <button id="btn-report" class="secondary-button compact">Report Incident</button>
+          </div>
+          <div class="risk-filter-panel">
+            <input class="risk-filter-search" placeholder="Select Filters..." readonly aria-label="Filter selector hint" />
+            <div class="risk-checkbox-grid">
+              <fieldset class="risk-filter-group">
+                <legend>Risk Type</legend>
+                <label><input type="checkbox" name="riskType" value="Flood" checked /> Flood</label>
+                <label><input type="checkbox" name="riskType" value="Disease" /> Disease</label>
+                <label><input type="checkbox" name="riskType" value="Fire" /> Fire</label>
+              </fieldset>
+              <fieldset class="risk-filter-group">
+                <legend>Region</legend>
+                <label><input type="checkbox" name="region" value="Jurong" checked /> Jurong</label>
+                <label><input type="checkbox" name="region" value="Tampines" /> Tampines</label>
+                <label><input type="checkbox" name="region" value="Central" /> Central</label>
+              </fieldset>
+              <fieldset class="risk-filter-group">
+                <legend>Severity</legend>
+                <label><input type="checkbox" name="severity" value="Critical" /> Critical</label>
+                <label><input type="checkbox" name="severity" value="High" checked /> High</label>
+                <label><input type="checkbox" name="severity" value="Medium" /> Medium</label>
+              </fieldset>
+              <fieldset class="risk-filter-group">
+                <legend>Time Prediction</legend>
+                <label><input type="checkbox" name="window" value="1" /> Next 1 hour</label>
+                <label><input type="checkbox" name="window" value="6" checked /> Next 6 hours</label>
+                <label><input type="checkbox" name="window" value="24" /> Next 24 hours</label>
+              </fieldset>
+            </div>
+            <button id="filter-apply" class="secondary-button compact" style="margin-top:10px">Apply Filters</button>
           </div>
         </div>
 
@@ -2399,12 +2894,11 @@ async function renderRiskPrediction() {
     </div>
   `;
 
-  // Leaflet is pre-loaded in index.html. Capture the reference now so that
-  // initOneMapDashboard's onemap-leaflet.js (which overwrites window.L) cannot
-  // clobber it after an async yield (e.g. during loadHeatmap).
-  const L = window.L;
+  // Load Leaflet and fetch heatmap
   try {
-    if (!L) throw new Error('Leaflet not loaded');
+    await loadStylesheet("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+    await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
+
     const map = L.map("risk-map").setView([1.3521, 103.8198], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(map);
     const layer = L.layerGroup().addTo(map);
@@ -2433,124 +2927,122 @@ async function renderRiskPrediction() {
     }
 
     async function loadHeatmap(filters = {}, source = 'api') {
+      if (source === 'api') {
+        // Fetch upstream flood alerts via server proxy and convert to FeatureCollection
+        const resp = await fetch('/api/flood-alerts');
+        const payload = await resp.json();
+        const records = payload.records || payload.data?.records || [];
+        const features = records.map((rec, idx) => {
+          const zoneId = rec.datetime || `record-${idx}`;
+          const zoneName = rec.item?.type || `Alert ${idx + 1}`;
+          const description = rec.item?.description || rec.item?.type || `Upstream alert ${rec.datetime || ''}`;
+          return {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [103.7 + (idx % 10) * 0.01, 1.30 + Math.floor(idx / 10) * 0.01] },
+            properties: { zoneId, zoneName, description, severity: 'High', confidence: 0.5 }
+          };
+        });
+        return { type: 'FeatureCollection', features, fetchedAt: new Date().toISOString() };
+      }
       const q = new URLSearchParams();
       q.set('region', filters.region || 'all');
-      q.set('window', filters.window || '6');
+      q.set('window', filters.window || '4');
       const url = selectEndpoint(source, 'heatmap') + '?' + q.toString();
       const resp = await fetch(url);
       return resp.json();
     }
 
-    function showApiZonePanel(ff) {
-      const props = ff.properties;
-      const panel = document.getElementById('ai-prediction');
-      panel.innerHTML = `
-        <h3>${getZoneDisplayName(ff)}</h3>
-        <p class="muted">${props.description || ''}</p>
-        <p><strong>Severity:</strong> ${props.severity} &nbsp;·&nbsp; <strong>Confidence:</strong> ${Math.round((props.confidence || 0) * 100)}%</p>
-        <p><strong>Time to impact:</strong> ${props.timeToImpact || '—'}</p>
-        <h4>Expected Impact</h4>
-        <ul class="ai-impact-list">
-          <li>Road congestion</li>
-          <li>Shelter demand increase</li>
-          <li>Hospital occupancy strain</li>
-        </ul>
-        <h4>Recommendations</h4>
-        <ul>${(props.recommendedActions || []).map(r => `<li>${r}</li>`).join('')}</ul>
-        <h5>Why</h5>
-        <p class="ai-explanation">${props.explanation || ''}</p>
-      `;
-    }
-
-    async function showDbZonePanel(ff) {
-      const displayName = getZoneDisplayName(ff);
-      const zoneId = getZoneIdentifier(ff);
-      const inc = ff.properties.incident || {};
-      const panel = document.getElementById('ai-prediction');
-      panel.innerHTML = `
-        <h3>${displayName}</h3>
-        <div class="incident-details">
-          <p><strong>Reporter:</strong> ${inc.reporter || 'anonymous'} (${inc.reporterRole || 'public'})</p>
-          <p><strong>Type:</strong> ${inc.type || 'report'}</p>
-          <p><strong>Severity:</strong> ${inc.severity || ff.properties.severity}</p>
-          <p><strong>Value:</strong> ${inc.value ?? '—'}</p>
-          <p><strong>Location:</strong> ${inc.location || inc.areaDesc || '—'}</p>
-          ${inc.note ? `<p><strong>Note:</strong> ${inc.note}</p>` : ''}
-          <p><strong>Status:</strong> ${inc.status || 'open'}</p>
-        </div>
-        <hr />
-        <div class="ai-section"><p>Loading AI prediction…</p></div>
-      `;
-      try {
-        const pResp = await fetch(selectEndpoint('db', 'predict'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ zone: zoneId, hours: 4 })
-        });
-        const p = await pResp.json();
-        const aiSection = panel.querySelector('.ai-section');
-        if (aiSection) {
-          aiSection.innerHTML = `
-            <h4>AI Predictions</h4>
-            <p><strong>Severity:</strong> ${p.severity} · <strong>Confidence:</strong> ${Math.round((p.confidence || 0) * 100)}%</p>
-            <p><strong>Time to impact:</strong> ${p.timeToImpact}</p>
-            <h5>Recommendations</h5>
-            <ul>${(p.recommendations || []).map(r => `<li>${r}</li>`).join('')}</ul>
-          `;
-        }
-      } catch (e) {
-        const aiSection = panel.querySelector('.ai-section');
-        if (aiSection) aiSection.textContent = 'Prediction failed.';
-      }
-    }
-
-    function addZoneMarkers(featureList) {
-      layer.clearLayers();
-      featureList.forEach(ff => {
-          const [lng2, lat2] = ff.geometry.coordinates;
-          const sev = ff.properties.severity;
-          const col = sev === 'Critical' ? '#a92525' : sev === 'High' ? '#c53d32' : '#c47a1b';
-          const m = L.circle([lat2, lng2], { radius: 400, color: col, fillColor: col, fillOpacity: 0.25 }).addTo(layer);
-          m.on('click', () => {
-            if (currentSource === 'db') showDbZonePanel(ff);
-            else showApiZonePanel(ff);
-          });
-        });
-    }
-
     const payload = await loadHeatmap({}, currentSource);
     const features = payload.features || [];
+    // mark API tab as active by default
     document.getElementById('tab-api').classList.add('active');
     document.getElementById('tab-api').setAttribute('aria-pressed', 'true');
 
-    addZoneMarkers(features);
+    features.forEach((f) => {
+      const [lng, lat] = f.geometry.coordinates;
+      const color = f.properties.severity === 'Critical' ? '#a92525' : f.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+      const marker = L.circle([lat, lng], { radius: 400, color, fillColor: color, fillOpacity: 0.25 }).addTo(layer);
+      marker.on('click', async () => {
+        const displayName = getZoneDisplayName(f);
+        const zoneId = getZoneIdentifier(f);
+        const panel = document.getElementById('ai-prediction');
+          if (currentSource === 'db') {
+          const inc = f.properties.incident || {};
+          panel.innerHTML = `
+            <h3>${displayName}</h3>
+            <div class="incident-details">
+              <p><strong>Description:</strong> ${f.properties.description || inc.note || 'No description provided'}</p>
+              <p><strong>Reporter:</strong> ${inc.reporter || 'anonymous'} (${inc.reporterRole || 'public'})</p>
+              <p><strong>Type:</strong> ${inc.type || 'report'}</p>
+              <p><strong>Severity:</strong> ${inc.severity || f.properties.severity}</p>
+              <p><strong>Value:</strong> ${inc.value ?? '—'}</p>
+              <p><strong>Location:</strong> ${inc.location || inc.areaDesc || '—'}</p>
+              <p><strong>Status:</strong> ${inc.status || 'open'}</p>
+            </div>
+            <hr />
+            <div class="ai-section"><p>Loading AI prediction…</p></div>
+          `;
 
+          try {
+            const pResp = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zoneId, hours: 4 }) });
+            const p = await pResp.json();
+            const aiSection = panel.querySelector('.ai-section');
+            if (aiSection) {
+              aiSection.innerHTML = `
+                <h4>AI Predictions</h4>
+                <p><strong>Severity:</strong> ${p.severity} · <strong>Confidence:</strong> ${Math.round((p.confidence||0)*100)}%</p>
+                <p><strong>Time to impact:</strong> ${p.timeToImpact}</p>
+                <h5>Recommendations</h5>
+                <ul>${(p.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+                <h5>Why</h5>
+                <p class="ai-explanation">${p.explanation || ''}</p>
+              `;
+            }
+          } catch (e) {
+            const aiSection = panel.querySelector('.ai-section');
+            if (aiSection) aiSection.textContent = 'Prediction failed.';
+          }
+        } else {
+          panel.innerHTML = `<p>Loading prediction for <strong>${displayName}</strong>…</p>`;
+          try {
+            const predictUrl = selectEndpoint(currentSource, 'predict');
+            const pResp = await fetch(predictUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: displayName, hours: 4 }) });
+            const p = await pResp.json();
+            panel.innerHTML = `
+              <h3>${displayName}</h3>
+              <p><strong>Severity:</strong> ${p.severity} · <strong>Confidence:</strong> ${Math.round((p.confidence||0)*100)}%</p>
+              <p><strong>Time to impact:</strong> ${p.timeToImpact}</p>
+              <h4>Expected Impact</h4>
+              <ul class="ai-impact-list">
+                <li>Road congestion</li>
+                <li>Shelter demand increase</li>
+                <li>Hospital occupancy strain</li>
+              </ul>
+              <h4>Recommendations</h4>
+              <ul>${(p.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+              <h5>Why</h5>
+              <p class="ai-explanation">${p.explanation || ''}</p>
+            `;
+          } catch (e) {
+            panel.textContent = 'Prediction failed.';
+          }
+        }
+      });
+    });
+    // Wire filter controls
+    // Report incident button -> show simple form in the right panel
     document.getElementById('btn-report').addEventListener('click', () => {
-      document.getElementById('tab-api').classList.remove('active');
-      document.getElementById('tab-db').classList.remove('active');
-      const titleEl = document.getElementById('panel-title');
-      if (titleEl) { titleEl.style.display = ''; titleEl.textContent = 'Report Incident'; }
       const panel = document.getElementById('ai-prediction');
       panel.innerHTML = `
-        <form id="report-form" class="report-form">
-          <label>Type
-            <select name="type" required>
-              <option value="flood">Flood</option>
-              <option value="dengue">Dengue Cluster</option>
-              <option value="fire">Fire</option>
-              <option value="road_hazard">Road Hazard</option>
-              <option value="power_outage">Power Outage</option>
-              <option value="shelter_full">Shelter Full</option>
-              <option value="others">Others</option>
-            </select>
-          </label>
-          <label>Severity
-            <select name="severity"><option>High</option><option selected>Medium</option><option>Low</option></select>
-          </label>
+        <h3>Report Incident</h3>
+        <form id="report-form">
+          <label>Type<input name="type" value="flood" required /></label>
+          <label>Severity<select name="severity"><option>High</option><option>Medium</option><option>Low</option></select></label>
           <label>Area description<input name="areaDesc" placeholder="Area description" required /></label>
           <label>Location<input name="location" placeholder="Location (optional)" /></label>
-          <label>Postal code<input name="postcode" placeholder="e.g. 520123" maxlength="6" /></label>
-          <label>Note<textarea name="note" rows="3"></textarea></label>
+          <label>Latitude<input name="lat" type="number" step="0.0001" /></label>
+          <label>Longitude<input name="lng" type="number" step="0.0001" /></label>
+          <label>Note<textarea name="note" rows="3" /></label>
           <div style="margin-top:8px"><button type="submit" class="form-button">Submit Report</button></div>
         </form>
         <p class="form-status" role="status"></p>
@@ -2563,43 +3055,204 @@ async function renderRiskPrediction() {
         status.textContent = 'Submitting...';
         try {
           const data = Object.fromEntries(new FormData(form).entries());
+          // Convert lat/lng and value if present
+          if (data.lat) data.lat = Number(data.lat);
+          if (data.lng) data.lng = Number(data.lng);
           const resp = await fetch('/api/incidents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
           const result = await resp.json();
           if (!resp.ok) throw new Error(result.error || 'Failed');
-          status.textContent = 'Report submitted successfully.';
+          status.textContent = 'Report submitted';
+          // If DB tab is active, refresh markers
           if (currentSource === 'db') {
-            const newPayload = await loadHeatmap({ region: 'all' }, 'db');
-            addZoneMarkers(newPayload.features || []);
+            const newPayload = await loadHeatmap({ region: 'all' }, currentSource);
+            layer.clearLayers();
+            (newPayload.features || []).forEach((ff) => {
+              const [lng2, lat2] = ff.geometry.coordinates;
+              const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+              const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+            });
           }
         } catch (err) {
           status.textContent = err.message || 'Submission failed';
         }
       });
     });
-
+    // Tab controls
     document.getElementById('tab-api').addEventListener('click', async () => {
       currentSource = 'api';
+      // Show AI panel title for Live API
       const titleEl = document.getElementById('panel-title');
       if (titleEl) { titleEl.style.display = ''; titleEl.textContent = 'AI Predictions'; }
       document.getElementById('tab-api').classList.add('active');
       document.getElementById('tab-db').classList.remove('active');
-      document.getElementById('ai-prediction').innerHTML = '<p class="muted">Select a zone on the map to see targeted predictions and recommended actions.</p>';
-      const newPayload = await loadHeatmap({ region: 'all' }, 'api');
-      addZoneMarkers(newPayload.features || []);
+      const newPayload = await loadHeatmap({ region: 'all' }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const displayName = getZoneDisplayName(ff);
+          const panel = document.getElementById('ai-prediction');
+          panel.innerHTML = `<p>Loading prediction for <strong>${displayName}</strong>…</p>`;
+          try {
+            const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: displayName, hours: 4 }) });
+            const p2 = await pResp2.json();
+            panel.innerHTML = `
+              <h3>${displayName}</h3>
+              <p><strong>Description:</strong> ${ff.properties.description || ''}</p>
+              <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+              <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+              <h4>Expected Impact</h4>
+              <ul class="ai-impact-list">
+                <li>Road congestion</li>
+                <li>Shelter demand increase</li>
+                <li>Hospital occupancy strain</li>
+              </ul>
+              <h4>Recommendations</h4>
+              <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+              <h5>Why</h5>
+              <p class="ai-explanation">${p2.explanation || ''}</p>
+            `;
+          } catch (e) {
+            panel.textContent = 'Prediction failed.';
+          }
+        });
+      });
     });
 
     document.getElementById('tab-db').addEventListener('click', async () => {
       currentSource = 'db';
+      // Hide the global AI header when showing DB incident details
       const titleEl = document.getElementById('panel-title');
-      if (titleEl) titleEl.style.display = 'none';
+      if (titleEl) { titleEl.style.display = 'none'; }
       document.getElementById('tab-db').classList.add('active');
       document.getElementById('tab-api').classList.remove('active');
-      document.getElementById('ai-prediction').innerHTML = '<p class="muted">Select a reported incident on the map to view details.</p>';
-      const newPayload = await loadHeatmap({ region: 'all' }, 'db');
-      addZoneMarkers(newPayload.features || []);
+      const newPayload = await loadHeatmap({ region: 'all' }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const displayName = getZoneDisplayName(ff);
+          const zoneId = getZoneIdentifier(ff);
+          const panel = document.getElementById('ai-prediction');
+          const inc = ff.properties.incident || {};
+          panel.innerHTML = `
+            <h3>${displayName}</h3>
+            <div class="incident-details">
+              <p><strong>Reporter:</strong> ${inc.reporter || 'anonymous'} (${inc.reporterRole || 'public'})</p>
+              <p><strong>Type:</strong> ${inc.type || 'report'}</p>
+              <p><strong>Severity:</strong> ${inc.severity || ff.properties.severity}</p>
+              <p><strong>Value:</strong> ${inc.value ?? '—'}</p>
+              <p><strong>Location:</strong> ${inc.location || inc.areaDesc || '—'}</p>
+              ${inc.note ? `<p><strong>Note:</strong> ${inc.note}</p>` : ''}
+              <p><strong>Status:</strong> ${inc.status || 'open'}</p>
+            </div>
+            <hr />
+            <div class="ai-section"><p>Loading AI prediction…</p></div>
+          `;
+          try {
+            const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zoneId, hours: 4 }) });
+            const p2 = await pResp2.json();
+            const aiSection = panel.querySelector('.ai-section');
+            if (aiSection) {
+              aiSection.innerHTML = `
+                <h4>AI Predictions</h4>
+                <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+                <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+                <h5>Recommendations</h5>
+                <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+              `;
+            }
+          } catch (e) {
+            const aiSection = panel.querySelector('.ai-section');
+            if (aiSection) aiSection.textContent = 'Prediction failed.';
+          }
+        });
+      });
     });
 
-
+    // Apply filter button
+    document.getElementById('filter-apply').addEventListener('click', async () => {
+      const region = [...document.querySelectorAll('input[name="region"]:checked')].map(cb => cb.value)[0] || 'all';
+      const wnd = [...document.querySelectorAll('input[name="window"]:checked')].map(cb => cb.value)[0] || '4';
+      const sev = [...document.querySelectorAll('input[name="severity"]:checked')].map(cb => cb.value)[0] || 'all';
+      const newPayload = await loadHeatmap({ region, window: wnd }, currentSource);
+      layer.clearLayers();
+      (newPayload.features || []).forEach((ff) => {
+        const [lng2, lat2] = ff.geometry.coordinates;
+        const color2 = ff.properties.severity === 'Critical' ? '#a92525' : ff.properties.severity === 'High' ? '#c53d32' : '#c47a1b';
+        const m2 = L.circle([lat2, lng2], { radius: 400, color: color2, fillColor: color2, fillOpacity: 0.25 }).addTo(layer);
+        m2.on('click', async () => {
+          const panel = document.getElementById('ai-prediction');
+          if (currentSource === 'db') {
+            const displayName = getZoneDisplayName(ff);
+            const zoneId = getZoneIdentifier(ff);
+            const inc = ff.properties.incident || {};
+            panel.innerHTML = `
+              <h3>${displayName}</h3>
+              <div class="incident-details">
+                <p><strong>Reporter:</strong> ${inc.reporter || 'anonymous'} (${inc.reporterRole || 'public'})</p>
+                <p><strong>Type:</strong> ${inc.type || 'report'}</p>
+                <p><strong>Severity:</strong> ${inc.severity || ff.properties.severity}</p>
+                <p><strong>Value:</strong> ${inc.value ?? '—'}</p>
+                <p><strong>Location:</strong> ${inc.location || inc.areaDesc || '—'}</p>
+                ${inc.note ? `<p><strong>Note:</strong> ${inc.note}</p>` : ''}
+                <p><strong>Status:</strong> ${inc.status || 'open'}</p>
+              </div>
+              <hr />
+              <div class="ai-section"><p>Loading AI prediction…</p></div>
+            `;
+            try {
+              const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: zoneId, hours: wnd }) });
+              const p2 = await pResp2.json();
+              const aiSection = panel.querySelector('.ai-section');
+              if (aiSection) {
+                aiSection.innerHTML = `
+                  <h4>AI Predictions</h4>
+                  <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+                  <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+                  <h5>Recommendations</h5>
+                  <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+                  <h5>Why</h5>
+                  <p class="ai-explanation">${p2.explanation || ''}</p>
+                `;
+              }
+            } catch (e) {
+              const aiSection = panel.querySelector('.ai-section');
+              if (aiSection) aiSection.textContent = 'Prediction failed.';
+            }
+          } else {
+            const displayName = getZoneDisplayName(ff);
+            panel.innerHTML = `<p>Loading prediction for <strong>${displayName}</strong>…</p>`;
+            try {
+              const pResp2 = await fetch(selectEndpoint(currentSource, 'predict'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zone: displayName, hours: wnd }) });
+              const p2 = await pResp2.json();
+              panel.innerHTML = `
+                <h3>${displayName}</h3>
+                <p><strong>Description:</strong> ${ff.properties.description || ''}</p>
+                <p><strong>Severity:</strong> ${p2.severity} · <strong>Confidence:</strong> ${Math.round((p2.confidence||0)*100)}%</p>
+                <p><strong>Time to impact:</strong> ${p2.timeToImpact}</p>
+                <h4>Expected Impact</h4>
+                <ul class="ai-impact-list">
+                  <li>Road congestion</li>
+                  <li>Shelter demand increase</li>
+                  <li>Hospital occupancy strain</li>
+                </ul>
+                <h4>Recommendations</h4>
+                <ul>${(p2.recommendations||[]).map(r=>`<li>${r}</li>`).join('')}</ul>
+                <h5>Why</h5>
+                <p class="ai-explanation">${p2.explanation || ''}</p>
+              `;
+            } catch (e) {
+              panel.textContent = 'Prediction failed.';
+            }
+          }
+        });
+      });
+    });
   } catch (error) {
     const el = document.getElementById('risk-map');
     if (el) el.innerHTML = '<span>Unable to load map.</span>';
@@ -2644,8 +3297,8 @@ async function renderAnalytics() {
               <canvas id="chart-flood" height="180"></canvas>
             </div>
             <div class="analytics-chart-card">
-              <p>Dengue Incidents</p>
-              <canvas id="chart-dengue" height="180"></canvas>
+              <p>Fire Incidents</p>
+              <canvas id="chart-fire" height="180"></canvas>
             </div>
           </div>
         </section>
@@ -2656,12 +3309,12 @@ async function renderAnalytics() {
             <p class="muted">Generated 5 mins ago</p>
           </div>
           <div class="analytics-shelter-grid">
-            <article class="analytics-shelter-card"><span>NUHS</span><strong class="high-occupancy">90%</strong></article>
+            <article class="analytics-shelter-card"><span>NUHS</span><strong>90%</strong></article>
             <article class="analytics-shelter-card"><span>NHG</span><strong>82%</strong></article>
-            <article class="analytics-shelter-card"><span>SH</span><strong class="high-occupancy">90%</strong></article>
-            <article class="analytics-shelter-card"><span>Schools</span><strong class="high-occupancy">90%</strong></article>
-            <article class="analytics-shelter-card"><span>Facilities</span><strong class="high-occupancy">90%</strong></article>
-            <article class="analytics-shelter-card"><span>Others</span><strong class="high-occupancy">90%</strong></article>
+            <article class="analytics-shelter-card"><span>SH</span><strong>90%</strong></article>
+            <article class="analytics-shelter-card"><span>Schools</span><strong>90%</strong></article>
+            <article class="analytics-shelter-card"><span>Facilities</span><strong>90%</strong></article>
+            <article class="analytics-shelter-card"><span>Others</span><strong>90%</strong></article>
           </div>
         </section>
 
@@ -2676,10 +3329,9 @@ async function renderAnalytics() {
   try {
     await loadScript('https://cdn.jsdelivr.net/npm/chart.js');
 
-    const [sResp, fResp, dResp, iResp] = await Promise.all([
+    const [sResp, tResp, iResp] = await Promise.all([
       fetch('/api/analytics/summary'),
-      fetch('/api/flood-alerts'),
-      fetch('/api/dengue-clusters'),
+      fetch('/api/analytics/trends'),
       fetch('/api/analytics/insights')
     ]);
 
@@ -2689,27 +3341,13 @@ async function renderAnalytics() {
     document.getElementById('stat-zones').textContent = stats.highRiskZones;
     document.getElementById('stat-shelter').textContent = stats.shelterUtilisation + '%';
 
-    // Flood chart — group live alert records by date, fall back to mock 7-day series
-    const fPayload = await fResp.json();
-    const floodRecords = fPayload.records || [];
-    const floodByDate = {};
-    floodRecords.forEach(rec => {
-      const dateKey = (rec.datetime || '').slice(0, 10) || 'unknown';
-      floodByDate[dateKey] = (floodByDate[dateKey] || 0) + 1;
-    });
-    let floodLabels, floodData;
-    if (Object.keys(floodByDate).length >= 3) {
-      floodLabels = Object.keys(floodByDate).sort();
-      floodData = floodLabels.map(d => floodByDate[d]);
-    } else {
-      // Live API only has data for today — use a 7-day mock trend instead
-      floodLabels = ['Jun 4', 'Jun 5', 'Jun 6', 'Jun 7', 'Jun 8', 'Jun 9', 'Jun 10'];
-      floodData   = [3, 5, 2, 8, 6, 4, floodRecords.length || 7];
-    }
+    const tPayload = await tResp.json();
+    const labels = (tPayload.series || []).map(s => s.date);
+    const floodData = (tPayload.series || []).map(s => s.count);
     new Chart(document.getElementById('chart-flood').getContext('2d'), {
       type: 'line',
       data: {
-        labels: floodLabels,
+        labels,
         datasets: [{
           label: 'Flood Incidents',
           data: floodData,
@@ -2722,38 +3360,21 @@ async function renderAnalytics() {
       options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
 
-    // Dengue chart — top clusters by case count, fall back to mock clusters
-    const dPayload = await dResp.json();
-    const dengueFeatures = dPayload.geojson?.features || [];
-    let dengueClusters = dengueFeatures
-      .map(f => dengueClusterInfo(f))
-      .filter(c => c.locality && c.caseSize > 0)
-      .sort((a, b) => b.caseSize - a.caseSize)
-      .slice(0, 10);
-    if (!dengueClusters.length) {
-      dengueClusters = [
-        { locality: 'Tampines Ave 4', caseSize: 24 },
-        { locality: 'Jurong West St 81', caseSize: 18 },
-        { locality: 'Bukit Merah View', caseSize: 15 },
-        { locality: 'Woodlands Dr 50', caseSize: 11 },
-        { locality: 'Hougang Ave 3', caseSize: 8 }
-      ];
-    }
-    new Chart(document.getElementById('chart-dengue').getContext('2d'), {
-      type: 'bar',
+    const fireData = labels.map((_, i) => Math.max(0, Math.round(2 + Math.sin(i * 0.8) * 2)));
+    new Chart(document.getElementById('chart-fire').getContext('2d'), {
+      type: 'line',
       data: {
-        labels: dengueClusters.map(c => c.locality),
+        labels,
         datasets: [{
-          label: 'Cases',
-          data: dengueClusters.map(c => c.caseSize),
-          backgroundColor: '#ef6351'
+          label: 'Fire Incidents',
+          data: fireData,
+          borderColor: '#c53d32',
+          backgroundColor: 'rgba(197,61,50,0.08)',
+          tension: 0.3,
+          fill: true
         }]
       },
-      options: {
-        indexAxis: 'y',
-        plugins: { legend: { display: false } },
-        scales: { x: { beginAtZero: true } }
-      }
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
 
     const iPayload = await iResp.json();
@@ -2780,6 +3401,10 @@ async function renderAnalytics() {
 }
 
 function renderRoute() {
+  if (opsMenuKeydownHandler) {
+    document.removeEventListener("keydown", opsMenuKeydownHandler);
+    opsMenuKeydownHandler = null;
+  }
   if (floodMapTimer) {
     window.clearInterval(floodMapTimer);
     floodMapTimer = null;
@@ -2787,6 +3412,14 @@ function renderRoute() {
   if (dengueMapTimer) {
     window.clearInterval(dengueMapTimer);
     dengueMapTimer = null;
+  }
+  if (evacuationMapTimer) {
+    window.clearInterval(evacuationMapTimer);
+    evacuationMapTimer = null;
+  }
+  if (publicStatusTimer) {
+    window.clearInterval(publicStatusTimer);
+    publicStatusTimer = null;
   }
   const renderer = routes[window.location.hash] || renderLanding;
   renderer();
