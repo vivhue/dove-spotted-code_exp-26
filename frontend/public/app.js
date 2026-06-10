@@ -6,9 +6,6 @@ const routes = {
   "#/login": renderRoleSelection,
   "#/login/professional": renderProfessionalLogin,
   "#/signup/professional": renderProfessionalSignup,
-  "#/reset/professional": renderProfessionalReset,
-  "#/admin/login": renderAdminLogin,
-  "#/admin/approvals": renderAdminApprovals,
   "#/login/public": renderPublicLogin,
   "#/signup/volunteer": renderVolunteerSignup,
   "#/dashboard": renderDashboard,
@@ -29,6 +26,7 @@ let emergencySpacesState = [];
 let emergencySpacesLoaded = false;
 let emergencySpacesSeed = [];
 let simulationScenarios = [];
+let opsMenuKeydownHandler = null;
 
 const DEFAULT_DASHBOARD_STATS = {
   activeIncidents: 5,
@@ -105,6 +103,8 @@ function icon(name) {
     info: '<circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />',
     alert: '<path d="M10.3 3.4 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.4a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01" />',
     activity: '<path d="M3 12h4l2.2-7 4.1 14 2.2-7H21" />',
+    close: '<path d="M18 6 6 18M6 6l12 12" />',
+    mapPin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0z" /><circle cx="12" cy="10" r="2.5" />',
     google: '<path d="M21.8 12.2c0-.7-.1-1.3-.2-1.9H12v3.6h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.2c1.9-1.8 3.1-4.4 3.1-7.4z" /><path d="M12 22c2.7 0 5-0.9 6.7-2.4L15.5 17a6 6 0 0 1-8.9-3.1H3.3v2.7A10 10 0 0 0 12 22z" /><path d="M6.6 13.9a6 6 0 0 1 0-3.8V7.4H3.3a10 10 0 0 0 0 9.2l3.3-2.7z" /><path d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-8.7 5.4l3.3 2.7A6 6 0 0 1 12 6z" />'
   };
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
@@ -301,17 +301,10 @@ function renderProfessionalLogin() {
             <label>Password
               <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required minlength="8" /></span>
             </label>
-            <div class="login-action-row">
-              <button class="code-button" type="button" data-connect-telegram>Connect Telegram</button>
-              <button class="code-button" type="button" data-request-code>Send 6-digit code</button>
-            </div>
-            <label>Verification<input name="verification" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="Enter 6-digit code" required /></label>
-            <p class="note">${icon("info")} Professional accounts require approval before activation. Contact your agency administrator for access.</p>
+            <p class="note">${icon("info")} Sign in using the password created with your authorised agency email.</p>
             <button class="form-button" type="submit">Sign In</button>
             <div class="auth-support-links">
               <a href="#/signup/professional">Sign up for a professional account</a>
-              <a href="#/reset/professional">Forgot password?</a>
-              <a href="#/admin/login">Administrator approval</a>
             </div>
             <p class="form-status" role="status"></p>
           </form>
@@ -375,243 +368,6 @@ function renderProfessionalSignup() {
   document.querySelector("[data-professional-signup]").addEventListener("submit", submitProfessionalSignup);
 }
 
-function renderProfessionalReset() {
-  app.innerHTML = `
-    <div class="page auth-page">
-      ${header({ backHref: "#/login/professional" })}
-      <main class="center-stage signup-stage">
-        <section class="login-panel reset-panel" aria-labelledby="professional-reset-heading">
-          <div class="auth-heading">
-            <p class="eyebrow">Account recovery</p>
-            <h1 id="professional-reset-heading">Reset Password</h1>
-            <p>The reset code will be sent only to the Telegram account already linked to your professional account.</p>
-          </div>
-          <form class="login-form reset-form" data-professional-reset>
-            <label>Work email
-              <input name="email" type="email" placeholder="name@agency.gov.sg" autocomplete="email" required />
-            </label>
-            <button class="code-button" type="button" data-request-reset-code>Send Reset Code</button>
-            <label>Reset code
-              <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="Enter 6-digit code" required />
-            </label>
-            <label>New password
-              <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="At least 10 characters" autocomplete="new-password" required minlength="10" /></span>
-            </label>
-            <label>Confirm new password
-              <span class="input-with-icon">${icon("lock")}<input name="confirmPassword" type="password" placeholder="Re-enter your password" autocomplete="new-password" required minlength="10" /></span>
-            </label>
-            <button class="form-button" type="submit">Update Password</button>
-            <p class="signup-line"><a href="#/login/professional">Return to professional login</a></p>
-            <p class="form-status" role="status"></p>
-          </form>
-        </section>
-      </main>
-    </div>
-  `;
-
-  const form = document.querySelector("[data-professional-reset]");
-  form.querySelector("[data-request-reset-code]").addEventListener("click", () => requestPasswordReset(form));
-  form.addEventListener("submit", submitPasswordReset);
-}
-
-function renderAdminLogin() {
-  app.innerHTML = `
-    <div class="page auth-page">
-      ${header({ backHref: "#/login/professional" })}
-      <main class="center-stage">
-        <section class="login-panel reset-panel" aria-labelledby="admin-login-heading">
-          <div class="auth-heading">
-            <p class="eyebrow">Restricted access</p>
-            <h1 id="admin-login-heading">Administrator Login</h1>
-            <p>Review professional account registrations and control platform access.</p>
-          </div>
-          <form class="login-form" data-admin-login>
-            <label>Admin email
-              <input name="email" type="email" placeholder="admin@quickaid.test" autocomplete="username" required />
-            </label>
-            <label>Password
-              <span class="input-with-icon">${icon("lock")}<input name="password" type="password" placeholder="Enter administrator password" autocomplete="current-password" required minlength="8" /></span>
-            </label>
-            <button class="form-button" type="submit">Sign In as Administrator</button>
-            <p class="form-status" role="status"></p>
-          </form>
-        </section>
-      </main>
-    </div>
-  `;
-
-  document.querySelector("[data-admin-login]").addEventListener("submit", submitAdminLogin);
-}
-
-async function submitAdminLogin(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const status = form.querySelector(".form-status");
-  const button = form.querySelector('button[type="submit"]');
-  const data = Object.fromEntries(new FormData(form).entries());
-  status.textContent = "Signing in...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/admin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to sign in.");
-      status.classList.add("error");
-      return;
-    }
-    localStorage.setItem("quickaid-admin-session", JSON.stringify(result.session));
-    window.location.hash = "#/admin/approvals";
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function renderAdminApprovals() {
-  const session = JSON.parse(localStorage.getItem("quickaid-admin-session") || "null");
-  if (!session?.token) {
-    window.location.hash = "#/admin/login";
-    return;
-  }
-
-  app.innerHTML = `
-    <div class="page admin-page">
-      <header class="admin-header">
-        <a class="brand" href="#/">
-          ${shieldIcon()}
-          <span><strong>QuickAid Admin</strong><small>Access governance</small></span>
-        </a>
-        <button class="secondary-button compact" type="button" data-admin-signout>Sign Out</button>
-      </header>
-      <main class="admin-main">
-        <section class="admin-title">
-          <div>
-            <p class="eyebrow">Professional access</p>
-            <h1>Account Approvals</h1>
-            <p>Review work identity and agency details before granting dashboard access.</p>
-          </div>
-          <span class="pending-count" data-pending-count>Loading</span>
-        </section>
-        <p class="form-status admin-status" role="status"></p>
-        <section class="approval-list" data-approval-list>
-          <p class="approval-empty">Loading pending registrations...</p>
-        </section>
-      </main>
-    </div>
-  `;
-
-  document.querySelector("[data-admin-signout]").addEventListener("click", adminSignOut);
-  await loadPendingProfessionals(session.token);
-}
-
-async function loadPendingProfessionals(token) {
-  const list = document.querySelector("[data-approval-list]");
-  const count = document.querySelector("[data-pending-count]");
-  const status = document.querySelector(".admin-status");
-
-  try {
-    const response = await fetch("/api/admin/professionals/pending", {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const result = await response.json();
-    if (response.status === 401) {
-      localStorage.removeItem("quickaid-admin-session");
-      window.location.hash = "#/admin/login";
-      return;
-    }
-    if (!response.ok) throw new Error(result.error || "Unable to load registrations.");
-
-    count.textContent = `${result.users.length} pending`;
-    list.innerHTML = result.users.length
-      ? result.users.map(adminApprovalCard).join("")
-      : `<div class="approval-empty"><strong>All caught up</strong><span>There are no professional registrations waiting for review.</span></div>`;
-
-    list.querySelectorAll("[data-approval-action]").forEach((button) => {
-      button.addEventListener("click", () => {
-        updateProfessionalStatus(button.dataset.userId, button.dataset.approvalAction, token);
-      });
-    });
-  } catch (error) {
-    count.textContent = "Unavailable";
-    status.textContent = error.message;
-    status.classList.add("error");
-    list.innerHTML = `<p class="approval-empty">Unable to load the approval queue.</p>`;
-  }
-}
-
-function adminApprovalCard(user) {
-  return `
-    <article class="approval-card">
-      <div class="approval-identity">
-        <span class="agency-badge">${escapeHtml(user.agency)}</span>
-        <h2>${escapeHtml(user.name)}</h2>
-        <a href="mailto:${escapeHtml(user.email)}">${escapeHtml(user.email)}</a>
-      </div>
-      <dl class="approval-details">
-        <div><dt>Agency</dt><dd>${escapeHtml(user.agency)}</dd></div>
-        <div><dt>Role / title</dt><dd>${escapeHtml(user.roleTitle)}</dd></div>
-        <div><dt>Submitted</dt><dd>${formatDateTime(user.createdAt)}</dd></div>
-      </dl>
-      <div class="approval-actions">
-        <button class="reject-button" type="button" data-approval-action="rejected" data-user-id="${user._id}">Reject</button>
-        <button class="approve-button" type="button" data-approval-action="approved" data-user-id="${user._id}">Approve</button>
-      </div>
-    </article>
-  `;
-}
-
-async function updateProfessionalStatus(userId, newStatus, token) {
-  const status = document.querySelector(".admin-status");
-  const buttons = document.querySelectorAll(`[data-user-id="${userId}"]`);
-  buttons.forEach((button) => {
-    button.disabled = true;
-  });
-  status.textContent = `${newStatus === "approved" ? "Approving" : "Rejecting"} account...`;
-  status.className = "form-status admin-status";
-
-  try {
-    const response = await fetch(`/api/admin/professionals/${userId}/status`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ status: newStatus })
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Unable to update account.");
-    status.textContent = result.message;
-    status.classList.add("success");
-    await loadPendingProfessionals(token);
-  } catch (error) {
-    status.textContent = error.message;
-    status.classList.add("error");
-    buttons.forEach((button) => {
-      button.disabled = false;
-    });
-  }
-}
-
-async function adminSignOut() {
-  const session = JSON.parse(localStorage.getItem("quickaid-admin-session") || "null");
-  if (session?.token) {
-    await fetch("/api/auth/admin/logout", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${session.token}` }
-    }).catch(() => {});
-  }
-  localStorage.removeItem("quickaid-admin-session");
-  window.location.hash = "#/admin/login";
-}
-
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -647,72 +403,6 @@ async function submitProfessionalSignup(event) {
     form.reset();
     status.textContent = result.message;
     status.classList.add("success");
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function requestPasswordReset(form) {
-  const status = form.querySelector(".form-status");
-  const button = form.querySelector("[data-request-reset-code]");
-  const email = form.elements.email.value;
-  status.textContent = "Sending reset code...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/professional/reset/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to send reset code.");
-      status.classList.add("error");
-      return;
-    }
-    status.textContent = result.message;
-    status.classList.add("success");
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function submitPasswordReset(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const status = form.querySelector(".form-status");
-  const button = form.querySelector('button[type="submit"]');
-  const data = Object.fromEntries(new FormData(form).entries());
-  status.textContent = "Updating password...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/professional/reset/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to reset password.");
-      status.classList.add("error");
-      return;
-    }
-    form.reset();
-    status.textContent = result.message;
-    status.classList.add("success");
-    window.setTimeout(() => {
-      window.location.hash = "#/login/professional";
-    }, 1000);
   } catch (error) {
     status.textContent = "Server unavailable. Check that QuickAid is running.";
     status.classList.add("error");
@@ -855,26 +545,10 @@ async function submitVolunteerSignup(event) {
 function bindLoginForm() {
   const form = document.querySelector(".login-form");
   const google = document.querySelector("[data-google]");
-  const requestCode = document.querySelector("[data-request-code]");
-  const connectTelegram = document.querySelector("[data-connect-telegram]");
 
   if (google) {
     google.addEventListener("click", () => {
       submitLogin("public", { provider: "google" });
-    });
-  }
-
-  if (requestCode) {
-    requestCode.addEventListener("click", () => {
-      const data = Object.fromEntries(new FormData(form).entries());
-      requestProfessionalCode(data);
-    });
-  }
-
-  if (connectTelegram) {
-    connectTelegram.addEventListener("click", () => {
-      const data = Object.fromEntries(new FormData(form).entries());
-      connectProfessionalTelegram(data);
     });
   }
 
@@ -884,77 +558,6 @@ function bindLoginForm() {
     const data = Object.fromEntries(new FormData(form).entries());
     submitLogin(role, data);
   });
-}
-
-async function connectProfessionalTelegram(payload) {
-  const status = document.querySelector(".form-status");
-  const button = document.querySelector("[data-connect-telegram]");
-  status.textContent = "Preparing Telegram connection...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/telegram/link-token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: payload.email,
-        password: payload.password
-      })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to connect Telegram.");
-      status.classList.add("error");
-      return;
-    }
-    if (!result.connectUrl) {
-      status.textContent = "Telegram bot username is missing. Add TELEGRAM_BOT_USERNAME to .env.";
-      status.classList.add("error");
-      return;
-    }
-    status.textContent = "Opening Telegram. Tap Start in the bot to finish linking.";
-    status.classList.add("success");
-    window.open(result.connectUrl, "_blank", "noopener");
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function requestProfessionalCode(payload) {
-  const status = document.querySelector(".form-status");
-  const button = document.querySelector("[data-request-code]");
-  status.textContent = "Generating verification code...";
-  status.className = "form-status";
-  button.disabled = true;
-
-  try {
-    const response = await fetch("/api/auth/professional/request-code", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: payload.email,
-        password: payload.password
-      })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      status.textContent = formatAuthError(result, "Unable to generate code.");
-      status.classList.add("error");
-      return;
-    }
-
-    status.textContent = result.message;
-    status.classList.add("success");
-  } catch (error) {
-    status.textContent = "Server unavailable. Check that QuickAid is running.";
-    status.classList.add("error");
-  } finally {
-    button.disabled = false;
-  }
 }
 
 async function submitLogin(role, payload) {
@@ -988,7 +591,21 @@ async function submitLogin(role, payload) {
 }
 
 async function renderDashboard() {
-  const session = JSON.parse(localStorage.getItem("quickaid-session") || "null");
+  let session;
+  try {
+    const response = await fetch("/api/auth/session");
+    const result = await response.json();
+    if (!response.ok) {
+      localStorage.removeItem("quickaid-session");
+      window.location.hash = "#/login";
+      return;
+    }
+    session = result.session;
+    localStorage.setItem("quickaid-session", JSON.stringify(session));
+  } catch (error) {
+    app.innerHTML = `<p class="page-load-error">Unable to verify your session. Check that QuickAid is running.</p>`;
+    return;
+  }
   const isProfessional = session?.role === "professional";
   emergencySpacesLoaded = false;
   emergencySpacesState = [];
@@ -1021,7 +638,9 @@ async function renderDashboard() {
         <header class="ops-header">
           <div>
             <div class="ops-title-row">
-              <span class="hamburger-lines" aria-hidden="true"></span>
+              <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
+                <span class="hamburger-lines" aria-hidden="true"></span>
+              </button>
               <h1>AI-assisted national resource</h1>
             </div>
             <p>Real-time emergency overview</p>
@@ -1038,6 +657,24 @@ async function renderDashboard() {
             <button class="secondary-button compact" data-signout>Sign Out</button>
           </div>
         </header>
+
+        <div class="ops-menu-backdrop" data-ops-menu-backdrop hidden></div>
+        <aside class="ops-navigation" data-ops-menu aria-hidden="true" aria-label="Dashboard navigation">
+          <div class="ops-navigation-header">
+            <div>
+              <strong>QuickAid Operations</strong>
+              <span>Professional workspace</span>
+            </div>
+            <button class="ops-menu-close" type="button" data-close-ops-menu aria-label="Close dashboard navigation">${icon("close")}</button>
+          </div>
+          <nav class="ops-navigation-links">
+            <button class="active" type="button" data-dashboard-overview>${icon("activity")}<span><strong>Overview</strong><small>Live national resource dashboard</small></span></button>
+            <a href="#/flood-map">${icon("mapPin")}<span><strong>Live Flood Map</strong><small>View active flood locations</small></span></a>
+            <button type="button" data-open-simulator>${icon("alert")}<span><strong>Incident Simulator</strong><small>Run predefined response scenarios</small></span></button>
+            <button type="button" data-open-emergency-spaces>${icon("building")}<span><strong>Emergency Spaces</strong><small>Review overflow shelter capacity</small></span></button>
+            <button type="button" data-open-volunteer-dispatch>${icon("users")}<span><strong>Volunteer Dispatch</strong><small>Match and deploy volunteers</small></span></button>
+          </nav>
+        </aside>
 
         <section class="ops-alert">
           ${icon("alert")}
@@ -1158,14 +795,55 @@ async function renderDashboard() {
     </div>
   `;
 
-  document.querySelector("[data-signout]").addEventListener("click", () => {
+  const opsMenu = document.querySelector("[data-ops-menu]");
+  const opsMenuBackdrop = document.querySelector("[data-ops-menu-backdrop]");
+  const opsMenuButton = document.querySelector("[data-open-ops-menu]");
+
+  function closeOpsMenu() {
+    opsMenu.classList.remove("open");
+    opsMenu.setAttribute("aria-hidden", "true");
+    opsMenuBackdrop.hidden = true;
+    opsMenuButton.setAttribute("aria-expanded", "false");
+  }
+
+  function openOpsMenu() {
+    opsMenu.classList.add("open");
+    opsMenu.setAttribute("aria-hidden", "false");
+    opsMenuBackdrop.hidden = false;
+    opsMenuButton.setAttribute("aria-expanded", "true");
+    document.querySelector("[data-close-ops-menu]").focus();
+  }
+
+  opsMenuButton.addEventListener("click", openOpsMenu);
+  document.querySelector("[data-close-ops-menu]").addEventListener("click", closeOpsMenu);
+  opsMenuBackdrop.addEventListener("click", closeOpsMenu);
+
+  opsMenuKeydownHandler = (event) => {
+    if (event.key === "Escape" && opsMenu.classList.contains("open")) closeOpsMenu();
+  };
+  document.addEventListener("keydown", opsMenuKeydownHandler);
+
+  document.querySelector("[data-dashboard-overview]").addEventListener("click", () => {
+    closeOpsMenu();
+    document.querySelector(".ops-alert").scrollIntoView({ behavior: "smooth" });
+  });
+
+  document.querySelector("[data-signout]").addEventListener("click", async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     localStorage.removeItem("quickaid-session");
     window.location.hash = "#/";
   });
 
-  document.querySelector("[data-open-simulator]").addEventListener("click", showIncidentSimulatorSection);
-  document.querySelector("[data-open-emergency-spaces]").addEventListener("click", showEmergencySpacesSection);
+  document.querySelector("[data-open-simulator]").addEventListener("click", () => {
+    closeOpsMenu();
+    showIncidentSimulatorSection();
+  });
+  document.querySelector("[data-open-emergency-spaces]").addEventListener("click", () => {
+    closeOpsMenu();
+    showEmergencySpacesSection();
+  });
   document.querySelector("[data-open-volunteer-dispatch]").addEventListener("click", () => {
+    closeOpsMenu();
     showVolunteerDispatchSection(session);
   });
   document.querySelector("[data-scenario-select]").addEventListener("change", (event) => {
@@ -3193,6 +2871,10 @@ async function renderAnalytics() {
 }
 
 function renderRoute() {
+  if (opsMenuKeydownHandler) {
+    document.removeEventListener("keydown", opsMenuKeydownHandler);
+    opsMenuKeydownHandler = null;
+  }
   if (floodMapTimer) {
     window.clearInterval(floodMapTimer);
     floodMapTimer = null;

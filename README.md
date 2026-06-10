@@ -49,34 +49,12 @@ frontend/
 
 Demo login rules:
 
-- Professional login needs a valid email, password with 8 or more characters, and a generated 6-digit verification code.
+- Professional login needs an account created with a supported official agency email and its password.
 - Public login needs a valid email and password with 6 or more characters, or use the Google demo button.
 
-Professional verification code:
-
-1. Enter professional email and password.
-2. Click `Send 6-digit code`.
-3. Enter the generated code.
-4. Click `Sign In`.
-
-Professional OTP requires MongoDB and a Telegram account linked to that
-specific professional.
-
-For Telegram delivery, create a `.env` file in the project root:
-
-```text
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_BOT_USERNAME=your_bot_username_without_at
-OTP_SECRET=change_this_to_any_long_random_text
-```
-
-Then run:
-
-```bash
-nodemon backend/server.js
-```
-
-The verification code expires after 5 minutes and allows 5 attempts.
+Both login types use server-held sessions in an HttpOnly, SameSite cookie.
+Repeated failed passwords are rate limited, and an account is temporarily
+locked for 15 minutes after five failed attempts.
 
 MongoDB setup:
 
@@ -116,8 +94,7 @@ Then run:
 npm run seed
 ```
 
-Both passwords are stored as hashes in MongoDB. Professional users must have
-`role: "professional"` and `status: "approved"` before they can request an OTP.
+Both passwords are stored as bcrypt hashes in MongoDB.
 
 Public email login requires an existing account. New volunteers register at
 `http://127.0.0.1:3000/#/signup/volunteer`.
@@ -126,34 +103,15 @@ Professional registration:
 
 1. Open `http://127.0.0.1:3000/#/signup/professional`.
 2. Register with a supported agency and official work email.
-3. The account is stored with `role: "professional"` and `status: "pending"`.
-4. An administrator opens `http://127.0.0.1:3000/#/admin/login`.
-5. The administrator reviews the registration and selects Approve or Reject.
-6. An approved user can sign in with the password they chose and connect their own
-   Telegram account.
+3. The server validates that the email domain matches the selected agency.
+4. The account is stored with `role: "professional"` and a bcrypt password hash.
+5. The professional can sign in with the password they chose.
 
 Supported production domains are checked against the selected agency:
 `scdf.gov.sg`, `spf.gov.sg`, `moh.gov.sg`, `nea.gov.sg`, `pub.gov.sg`, and
 `lta.gov.sg`. For local classroom accounts, domains listed in
 `PROFESSIONAL_TEST_DOMAINS` are also accepted. The default is
 `quickaid.test`, including subdomains such as `scdf.quickaid.test`.
-
-Matching an email domain does not approve an account. Administrator review is
-still required.
-
-Administrator setup:
-
-Add a private administrator account to `.env`:
-
-```text
-SEED_ADMIN_EMAIL=admin@quickaid.test
-SEED_ADMIN_PASSWORD=use_a_strong_unique_password
-SEED_ADMIN_NAME=QuickAid Administrator
-```
-
-Run `npm run seed`, then sign in at
-`http://127.0.0.1:3000/#/admin/login`. The approval API requires a temporary
-admin session token and does not accept professional or public accounts.
 
 Team MongoDB setup:
 
@@ -192,7 +150,10 @@ Password security:
 - Passwords are hashed with `bcrypt.hash()`.
 - Login checks use `bcrypt.compare()`.
 - Plain-text passwords are never stored in MongoDB.
-- Original passwords are never displayed or sent through Telegram.
+- Original passwords are never displayed, sent through Telegram, or returned by the API.
+- Sessions expire after eight hours and are invalidated when the user signs out.
+- Login attempts are limited per account and client address.
+- Five incorrect passwords temporarily lock the account for 15 minutes.
 - Approved professionals can reset a forgotten password at
   `http://127.0.0.1:3000/#/reset/professional`.
 - Reset codes expire after five minutes, are stored as hashes, and are sent

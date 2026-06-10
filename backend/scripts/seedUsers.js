@@ -62,9 +62,6 @@ async function seed() {
   const publicPassword = process.env.SEED_PUBLIC_PASSWORD || "secret123";
   const publicName = process.env.SEED_PUBLIC_NAME || "Public Demo User";
   const teamPassword = process.env.SEED_TEAM_PASSWORD || "QuickAidDemo2026!";
-  const adminEmail = process.env.SEED_ADMIN_EMAIL || "";
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD || "";
-  const adminName = process.env.SEED_ADMIN_NAME || "QuickAid Administrator";
 
   const professionalUsers = [
     {
@@ -120,23 +117,11 @@ async function seed() {
     status: "approved"
   });
 
-  if (adminEmail && adminPassword) {
-    await upsertUser({
-      name: adminName,
-      email: adminEmail,
-      password: adminPassword,
-      role: "admin",
-      status: "approved",
-      roleTitle: "Access Administrator"
-    });
-  }
-
   console.log("Seeded demo users:");
   professionalUsers.forEach((professional) => {
     console.log(`Professional (${professional.agency}): ${professional.email}`);
   });
   console.log(`Public: ${publicEmail}`);
-  console.log(adminEmail && adminPassword ? `Administrator: ${adminEmail}` : "Administrator: skipped");
   console.log("Passwords were loaded from .env and stored only as bcrypt hashes.");
 }
 
