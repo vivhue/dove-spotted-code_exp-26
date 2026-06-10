@@ -1358,8 +1358,22 @@ async function renderFloodMap() {
       list.querySelectorAll("[data-locate-dengue]").forEach((button) => {
         button.addEventListener("click", () => {
           const { layer } = entries[Number(button.dataset.locateDengue)];
+          if (!layer.getBounds) return;
+
           const bounds = layer.getBounds();
-          map.flyToBounds(bounds, { duration: 0.6, maxZoom: 16 });
+          if (!bounds.isValid()) return;
+
+          if (!map.hasLayer(dengueLayer)) {
+            const dengueToggle = document.querySelector('[data-layer-toggle="dengue"]');
+            if (dengueToggle) dengueToggle.checked = true;
+            map.addLayer(dengueLayer);
+          }
+
+          if (typeof map.flyToBounds === "function") {
+            map.flyToBounds(bounds, { duration: 0.6, maxZoom: 16 });
+          } else {
+            map.fitBounds(bounds, { maxZoom: 16 });
+          }
           layer.openPopup(bounds.getCenter());
         });
       });
