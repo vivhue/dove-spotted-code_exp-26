@@ -3426,5 +3426,17 @@ function renderRoute() {
   renderer();
 }
 
+function initThemeToggle() {
+  const toggle = document.getElementById("theme-toggle");
+  if (!toggle) return;
+  toggle.addEventListener("click", () => {
+    const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    const next = current === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("quickaid-theme", next);
+  });
+}
+
+initThemeToggle();
 window.addEventListener("hashchange", renderRoute);
 renderRoute();
