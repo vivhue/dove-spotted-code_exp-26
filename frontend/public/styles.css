@@ -42,6 +42,37 @@
   color-scheme: dark;
 }
 
+[data-theme="dark"] .critical-alert {
+  border-color: #5c2624;
+  background: #2a1715;
+  color: #ff8a80;
+}
+
+[data-theme="dark"] .risk-level-low {
+  background: rgba(45, 212, 191, 0.16);
+  color: #5eead4;
+}
+
+[data-theme="dark"] .risk-level-medium {
+  background: rgba(250, 204, 21, 0.16);
+  color: #facc15;
+}
+
+[data-theme="dark"] .risk-level-high {
+  background: rgba(255, 122, 110, 0.16);
+  color: #ff7a6e;
+}
+
+[data-theme="dark"] .ops-alert {
+  border-color: #5c2624;
+  background: #2a1715;
+}
+
+[data-theme="dark"] .ops-alert strong {
+  background: #3a201d;
+  color: #ffd9d4;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -2471,6 +2502,7 @@ p {
   padding: 20px;
   max-height: 620px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .flood-alert-rail h2 {
@@ -2651,11 +2683,12 @@ p {
 
 .evac-input-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .evac-input-row input[type="text"] {
-  flex: 1;
+  flex: 1 1 140px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -2663,6 +2696,10 @@ p {
   min-height: 40px;
   background: var(--card);
   color: var(--ink);
+}
+
+.evac-input-row .secondary-button {
+  flex: 0 0 auto;
 }
 
 .evac-location-button {
