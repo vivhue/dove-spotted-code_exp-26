@@ -1065,6 +1065,19 @@ async function handleApi(req, res) {
         return;
       }
       const Incident = require('./models/Incident');
+      if (body.postcode && !body.lat) {
+        try {
+          const omUrl = `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(body.postcode)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
+          const omResp = await fetch(omUrl);
+          const omData = await omResp.json();
+          const first = omData.results?.[0];
+          if (first) {
+            body.lat = parseFloat(first.LATITUDE);
+            body.lng = parseFloat(first.LONGITUDE);
+            if (!body.location) body.location = first.ADDRESS || first.SEARCHVAL || body.postcode;
+          }
+        } catch (_) { /* proceed without coords if lookup fails */ }
+      }
       const inc = new Incident({
         reporter: body.reporter || 'anonymous',
         reporterRole: body.reporterRole || 'public',
@@ -1077,10 +1090,12 @@ async function handleApi(req, res) {
         lng: body.lng,
         note: body.note || ''
       });
+      console.log('Saving incident:', JSON.stringify(inc.toObject()));
       await inc.save();
       sendJson(res, 201, { incidentId: inc._id.toString(), message: 'Incident recorded' });
     } catch (error) {
-      sendJson(res, 500, { error: 'Failed to record incident' });
+      console.error('Incident save error:', error.message, error.errors);
+      sendJson(res, 500, { error: error.message || 'Failed to record incident' });
     }
     return;
   }
