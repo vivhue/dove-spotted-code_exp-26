@@ -1,5 +1,4 @@
 const http = require("http");
-const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -12,24 +11,18 @@ loadEnvFile(path.join(__dirname, "..", ".env"));
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
 const PUBLIC_DIR = path.join(__dirname, "..", "frontend", "public");
-const OTP_TTL_MS = 5 * 60 * 1000;
-const OTP_MAX_ATTEMPTS = 5;
-const OTP_SECRET = process.env.OTP_SECRET || "quickaid-local-demo-otp-secret";
 const PROFESSIONAL_TEST_DOMAINS = (process.env.PROFESSIONAL_TEST_DOMAINS || "quickaid.test")
   .split(",")
   .map((domain) => domain.trim().toLowerCase())
   .filter(Boolean);
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-const TELEGRAM_BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
-const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
-const TELEGRAM_POLLING = process.env.TELEGRAM_POLLING === "true" || !PUBLIC_BASE_URL;
-const otpStore = new Map();
-const adminSessionStore = new Map();
-const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_RATE_MAX_FAILURES = 10;
+const ACCOUNT_LOCK_FAILURES = 5;
+const ACCOUNT_LOCK_MS = 15 * 60 * 1000;
+const userSessionStore = new Map();
+const loginRateLimitStore = new Map();
 let mongoConnected = false;
-let telegramPollOffset = 0;
-let telegramPollingStarted = false;
 
 const ONEMAP_TOKEN = process.env.ONEMAP_TOKEN || "";
 
@@ -572,35 +565,56 @@ function parseBody(req) {
   });
 }
 
-function buildSession(role, email) {
+function createUserSession(res, req, user) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const issuedAt = new Date().toISOString();
+  userSessionStore.set(token, {
+    userId: String(user._id),
+    email: user.email,
+    role: user.role,
+    issuedAt,
+    expiresAt: Date.now() + SESSION_TTL_MS
+  });
+  const secure = req.socket.encrypted || req.headers["x-forwarded-proto"] === "https";
+  res.setHeader(
+    "Set-Cookie",
+    `quickaid_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}${secure ? "; Secure" : ""}`
+  );
   return {
-    token: crypto.randomBytes(18).toString("hex"),
-    role,
-    email,
-    issuedAt: new Date().toISOString()
+    role: user.role,
+    email: user.email,
+    issuedAt
   };
 }
 
-function createAdminSession(user) {
-  const token = crypto.randomBytes(32).toString("hex");
-  adminSessionStore.set(token, {
-    userId: String(user._id),
-    email: user.email,
-    expiresAt: Date.now() + ADMIN_SESSION_TTL_MS
-  });
-  return token;
+function parseCookies(req) {
+  return String(req.headers.cookie || "")
+    .split(";")
+    .reduce((cookies, pair) => {
+      const separator = pair.indexOf("=");
+      if (separator === -1) return cookies;
+      const key = pair.slice(0, separator).trim();
+      const value = pair.slice(separator + 1).trim();
+      if (key) cookies[key] = decodeURIComponent(value);
+      return cookies;
+    }, {});
 }
 
-function getAdminSession(req) {
-  const authorization = String(req.headers.authorization || "");
-  const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-  const session = adminSessionStore.get(token);
+function getUserSession(req) {
+  const token = parseCookies(req).quickaid_session || "";
+  const session = userSessionStore.get(token);
   if (!session) return null;
   if (Date.now() > session.expiresAt) {
-    adminSessionStore.delete(token);
+    userSessionStore.delete(token);
     return null;
   }
   return { token, ...session };
+}
+
+function clearUserSession(req, res) {
+  const session = getUserSession(req);
+  if (session) userSessionStore.delete(session.token);
+  res.setHeader("Set-Cookie", "quickaid_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
 }
 
 function validEmail(email) {
@@ -611,45 +625,11 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
-function hashOtp(email, otp) {
-  return crypto
-    .createHmac("sha256", OTP_SECRET)
-    .update(`${normalizeEmail(email)}:${otp}`)
-    .digest("hex");
-}
-
-function secureHash(value, purpose) {
-  return crypto
-    .createHmac("sha256", OTP_SECRET)
-    .update(`${purpose}:${String(value)}`)
-    .digest("hex");
-}
-
-function generateOtp() {
-  return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
-}
-
-function generateLinkToken() {
-  return crypto.randomBytes(18).toString("hex");
-}
-
-function hashLinkToken(token) {
-  return crypto.createHash("sha256").update(String(token)).digest("hex");
-}
-
 function validateProfessionalCredentials(body) {
   const errors = {};
   if (!validEmail(body.email)) errors.email = "Enter a valid authorised email.";
   if (typeof body.password !== "string" || body.password.length < 8) {
     errors.password = "Password must be at least 8 characters.";
-  }
-  return errors;
-}
-
-function validateProfessionalLogin(body) {
-  const errors = validateProfessionalCredentials(body);
-  if (typeof body.verification !== "string" || !/^\d{6}$/.test(body.verification)) {
-    errors.verification = "Enter the 6-digit verification code.";
   }
   return errors;
 }
@@ -664,19 +644,6 @@ function validateProfessionalSignup(body) {
   if (!validEmail(body.email)) errors.email = "Enter a valid work email.";
   if (!PROFESSIONAL_AGENCY_DOMAINS[agency]) errors.agency = "Choose a supported agency.";
   if (roleTitle.length < 2 || roleTitle.length > 100) errors.roleTitle = "Enter your role or title.";
-  if (typeof body.password !== "string" || body.password.length < 10) {
-    errors.password = "Password must be at least 10 characters.";
-  }
-  if (body.password !== body.confirmPassword) errors.confirmPassword = "Passwords do not match.";
-  return errors;
-}
-
-function validatePasswordReset(body) {
-  const errors = {};
-  if (!validEmail(body.email)) errors.email = "Enter a valid work email.";
-  if (typeof body.code !== "string" || !/^\d{6}$/.test(body.code)) {
-    errors.code = "Enter the 6-digit reset code.";
-  }
   if (typeof body.password !== "string" || body.password.length < 10) {
     errors.password = "Password must be at least 10 characters.";
   }
@@ -727,23 +694,6 @@ async function findUser(email, role, extraSelect = "") {
   return result;
 }
 
-function professionalStatusError(user) {
-  if (!user) return { statusCode: 404, error: "Professional account not found." };
-  if (user.status === "pending") {
-    return {
-      statusCode: 403,
-      error: "Your professional account is pending administrator approval."
-    };
-  }
-  if (user.status === "rejected") {
-    return {
-      statusCode: 403,
-      error: "Your professional account application was rejected. Contact your agency administrator."
-    };
-  }
-  return null;
-}
-
 function emailDomain(email) {
   return normalizeEmail(email).split("@")[1] || "";
 }
@@ -764,136 +714,77 @@ async function validateUserPassword(user, password) {
   return verifyPassword(password, user.passwordHash);
 }
 
-function sendTelegramMessage(text, chatId) {
-  return new Promise((resolve, reject) => {
-    if (!TELEGRAM_BOT_TOKEN || !chatId) {
-      resolve({ delivered: false, reason: "telegram_not_configured" });
-      return;
-    }
-
-    const payload = JSON.stringify({
-      chat_id: chatId,
-      text
-    });
-
-    const req = https.request(
-      {
-        hostname: "api.telegram.org",
-        path: `/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(payload)
-        },
-        timeout: 7000
-      },
-      (telegramRes) => {
-        let body = "";
-        telegramRes.on("data", (chunk) => {
-          body += chunk;
-        });
-        telegramRes.on("end", () => {
-          if (telegramRes.statusCode >= 200 && telegramRes.statusCode < 300) {
-            resolve({ delivered: true });
-            return;
-          }
-          reject(new Error(`Telegram returned ${telegramRes.statusCode}: ${body}`));
-        });
-      }
-    );
-
-    req.on("timeout", () => req.destroy(new Error("Telegram request timed out")));
-    req.on("error", reject);
-    req.write(payload);
-    req.end();
-  });
+function loginRateKey(req, role, email) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const address = forwarded || req.socket.remoteAddress || "unknown";
+  return `${role}:${address}:${normalizeEmail(email)}`;
 }
 
-async function processTelegramUpdate(update) {
-  const message = update.message;
-  const text = message?.text || "";
-  const chat = message?.chat;
-  const from = message?.from || {};
-  const match = text.match(/^\/start(?:\s+(.+))?$/);
-  if (!match || !match[1] || !chat?.id) return;
-
-  if (!mongoConnected) {
-    await sendTelegramMessage("QuickAid cannot link Telegram right now because MongoDB is not connected.", chat.id);
-    return;
+function loginRateStatus(key) {
+  const record = loginRateLimitStore.get(key);
+  if (!record) return null;
+  if (Date.now() - record.startedAt >= LOGIN_RATE_WINDOW_MS) {
+    loginRateLimitStore.delete(key);
+    return null;
   }
-
-  const tokenHash = hashLinkToken(match[1].trim());
-  const user = await User.findOne({
-    telegramLinkTokenHash: tokenHash,
-    telegramLinkExpiresAt: { $gt: new Date() }
-  }).select("+telegramLinkTokenHash +telegramLinkExpiresAt");
-
-  if (!user) {
-    await sendTelegramMessage("QuickAid Telegram link expired. Please request a new link from the app.", chat.id);
-    return;
-  }
-
-  await User.updateMany(
-    {
-      _id: { $ne: user._id },
-      telegramChatId: String(chat.id)
-    },
-    {
-      $set: {
-        telegramChatId: "",
-        telegramUsername: "",
-        mfaMethod: "none"
-      },
-      $unset: {
-        telegramLinkedAt: ""
-      }
-    }
-  );
-
-  user.telegramChatId = String(chat.id);
-  user.telegramUsername = from.username || chat.username || "";
-  user.telegramLinkedAt = new Date();
-  user.telegramLinkTokenHash = "";
-  user.telegramLinkExpiresAt = undefined;
-  user.mfaMethod = "telegram";
-  await user.save();
-
-  await sendTelegramMessage(
-    `Telegram connected for QuickAid account ${user.email}. You can now receive OTP codes here.`,
-    chat.id
-  );
-  console.log(`Telegram linked for ${user.email}.`);
+  if (record.failures < LOGIN_RATE_MAX_FAILURES) return null;
+  return Math.ceil((record.startedAt + LOGIN_RATE_WINDOW_MS - Date.now()) / 1000);
 }
 
-async function pollTelegramUpdates() {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_POLLING || telegramPollingStarted) return;
-  telegramPollingStarted = true;
-  console.log("Telegram local polling enabled.");
-
-  while (telegramPollingStarted) {
-    try {
-      const params = new URLSearchParams({
-        timeout: "20",
-        offset: String(telegramPollOffset),
-        allowed_updates: JSON.stringify(["message"])
-      });
-      const response = await fetch(
-        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?${params}`
-      );
-      const payload = await response.json();
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.description || `Telegram returned ${response.status}`);
-      }
-
-      for (const update of payload.result || []) {
-        telegramPollOffset = Math.max(telegramPollOffset, update.update_id + 1);
-        await processTelegramUpdate(update);
-      }
-    } catch (error) {
-      console.error("Telegram polling failed:", error.message);
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-    }
+function recordLoginFailure(key) {
+  const current = loginRateLimitStore.get(key);
+  if (!current || Date.now() - current.startedAt >= LOGIN_RATE_WINDOW_MS) {
+    loginRateLimitStore.set(key, { failures: 1, startedAt: Date.now() });
+    return;
   }
+  current.failures += 1;
+}
+
+function clearLoginFailures(key) {
+  loginRateLimitStore.delete(key);
+}
+
+async function authenticateUser(req, role, email, password) {
+  const key = loginRateKey(req, role, email);
+  const retryAfter = loginRateStatus(key);
+  if (retryAfter) {
+    return {
+      statusCode: 429,
+      error: `Too many sign-in attempts. Try again in ${Math.ceil(retryAfter / 60)} minutes.`
+    };
+  }
+
+  const user = await findUser(
+    email,
+    role,
+    "+failedLoginAttempts +loginLockedUntil"
+  );
+  if (user?.loginLockedUntil && user.loginLockedUntil.getTime() > Date.now()) {
+    const minutes = Math.max(1, Math.ceil((user.loginLockedUntil.getTime() - Date.now()) / 60_000));
+    return {
+      statusCode: 423,
+      error: `This account is temporarily locked. Try again in ${minutes} minutes.`
+    };
+  }
+
+  const passwordOk = await validateUserPassword(user, password);
+  if (!passwordOk) {
+    recordLoginFailure(key);
+    if (user) {
+      user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+      if (user.failedLoginAttempts >= ACCOUNT_LOCK_FAILURES) {
+        user.loginLockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MS);
+        user.failedLoginAttempts = 0;
+      }
+      await user.save();
+    }
+    return { statusCode: 401, error: "Invalid email or password." };
+  }
+
+  clearLoginFailures(key);
+  user.failedLoginAttempts = 0;
+  user.loginLockedUntil = undefined;
+  return { user };
 }
 
 async function handleApi(req, res) {
@@ -1319,71 +1210,25 @@ async function handleApi(req, res) {
     return;
   }
 
-  if (req.method === "POST" && req.url === "/api/auth/telegram/link-token") {
-    try {
-      const body = await parseBody(req);
-      const email = normalizeEmail(body.email);
-      const errors = validateProfessionalCredentials(body);
-      if (Object.keys(errors).length) {
-        sendJson(res, 400, { error: "Unable to create Telegram link.", fields: errors });
-        return;
-      }
-      if (!mongoConnected) {
-        sendJson(res, 503, { error: "MongoDB is required to link Telegram accounts." });
-        return;
-      }
-      const user = await findUser(email, "professional");
-      const statusError = professionalStatusError(user);
-      if (statusError) {
-        sendJson(res, statusError.statusCode, { error: statusError.error });
-        return;
-      }
-      const passwordOk = await validateUserPassword(user, body.password);
-      if (!passwordOk) {
-        sendJson(res, 401, { error: "Invalid email or password." });
-        return;
-      }
-
-      const token = generateLinkToken();
-      user.telegramChatId = "";
-      user.telegramUsername = "";
-      user.telegramLinkedAt = undefined;
-      user.telegramLinkTokenHash = hashLinkToken(token);
-      user.telegramLinkExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-      user.mfaMethod = "none";
-      await user.save();
-
-      sendJson(res, 200, {
-        message: "Telegram link token created.",
-        token,
-        connectUrl: TELEGRAM_BOT_USERNAME
-          ? `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${token}`
-          : "",
-        note: "Open the bot and tap Start to link this account to that Telegram chat."
-      });
-    } catch (error) {
-      sendJson(res, 400, { error: "Invalid request payload." });
+  if (req.method === "GET" && req.url === "/api/auth/session") {
+    const session = getUserSession(req);
+    if (!session) {
+      sendJson(res, 401, { error: "Sign in required." });
+      return;
     }
+    sendJson(res, 200, {
+      session: {
+        role: session.role,
+        email: session.email,
+        issuedAt: session.issuedAt
+      }
+    });
     return;
   }
 
-  if (req.method === "POST" && req.url === "/api/telegram/webhook") {
-    try {
-      if (TELEGRAM_WEBHOOK_SECRET) {
-        const receivedSecret = req.headers["x-telegram-bot-api-secret-token"];
-        if (receivedSecret !== TELEGRAM_WEBHOOK_SECRET) {
-          sendJson(res, 401, { error: "Invalid Telegram webhook secret." });
-          return;
-        }
-      }
-
-      const update = await parseBody(req);
-      await processTelegramUpdate(update);
-      sendJson(res, 200, { ok: true });
-    } catch (error) {
-      console.error("Telegram webhook failed:", error.message);
-      sendJson(res, 200, { ok: true });
-    }
+  if (req.method === "POST" && req.url === "/api/auth/logout") {
+    clearUserSession(req, res);
+    sendJson(res, 200, { message: "Signed out." });
     return;
   }
 
@@ -1420,14 +1265,15 @@ async function handleApi(req, res) {
         email,
         passwordHash: await hashPassword(body.password),
         role: "professional",
-        status: "pending",
+        status: "approved",
         agency,
         roleTitle: String(body.roleTitle).trim(),
-        mfaMethod: "none"
+        mfaMethod: "none",
+        approvedAt: new Date()
       });
 
       sendJson(res, 201, {
-        message: "Registration submitted. An administrator must approve your account before you can sign in."
+        message: "Professional account created. You can now sign in."
       });
     } catch (error) {
       if (error?.code === 11000) {
@@ -1440,193 +1286,10 @@ async function handleApi(req, res) {
     return;
   }
 
-  if (req.method === "POST" && req.url === "/api/auth/admin") {
-    try {
-      const body = await parseBody(req);
-      const errors = validateProfessionalCredentials(body);
-      if (Object.keys(errors).length) {
-        sendJson(res, 400, { error: "Unable to sign in.", fields: errors });
-        return;
-      }
-      if (!mongoConnected) {
-        sendJson(res, 503, { error: "MongoDB is not connected. Admin sign-in is unavailable." });
-        return;
-      }
-
-      const user = await findUser(body.email, "admin");
-      if (!user || user.status !== "approved") {
-        sendJson(res, 401, { error: "Invalid administrator email or password." });
-        return;
-      }
-      const passwordOk = await validateUserPassword(user, body.password);
-      if (!passwordOk) {
-        sendJson(res, 401, { error: "Invalid administrator email or password." });
-        return;
-      }
-
-      user.lastLoginAt = new Date();
-      await user.save();
-      sendJson(res, 200, {
-        message: "Administrator access approved.",
-        session: {
-          token: createAdminSession(user),
-          role: "admin",
-          email: user.email,
-          issuedAt: new Date().toISOString()
-        },
-        redirectTo: "/#/admin/approvals"
-      });
-    } catch (error) {
-      sendJson(res, 400, { error: "Invalid request payload." });
-    }
-    return;
-  }
-
-  if (req.method === "POST" && req.url === "/api/auth/admin/logout") {
-    const session = getAdminSession(req);
-    if (session) adminSessionStore.delete(session.token);
-    sendJson(res, 200, { message: "Signed out." });
-    return;
-  }
-
-  if (req.method === "GET" && req.url === "/api/admin/professionals/pending") {
-    const session = getAdminSession(req);
-    if (!session) {
-      sendJson(res, 401, { error: "Administrator sign-in required." });
-      return;
-    }
-    if (!mongoConnected) {
-      sendJson(res, 503, { error: "MongoDB is not connected." });
-      return;
-    }
-
-    const users = await User.find({ role: "professional", status: "pending" })
-      .select("name email agency roleTitle status createdAt")
-      .sort({ createdAt: 1 })
-      .lean();
-    sendJson(res, 200, { users });
-    return;
-  }
-
-  if (req.method === "PATCH" && /^\/api\/admin\/professionals\/[^/]+\/status$/.test(req.url)) {
-    const session = getAdminSession(req);
-    if (!session) {
-      sendJson(res, 401, { error: "Administrator sign-in required." });
-      return;
-    }
-    if (!mongoConnected) {
-      sendJson(res, 503, { error: "MongoDB is not connected." });
-      return;
-    }
-
-    try {
-      const userId = req.url.split("/")[4];
-      const body = await parseBody(req);
-      if (!["approved", "rejected"].includes(body.status)) {
-        sendJson(res, 400, { error: "Status must be approved or rejected." });
-        return;
-      }
-
-      const update = {
-        status: body.status,
-        approvedAt: body.status === "approved" ? new Date() : undefined
-      };
-      const user = await User.findOneAndUpdate(
-        { _id: userId, role: "professional", status: "pending" },
-        { $set: update },
-        { returnDocument: "after" }
-      ).select("name email agency roleTitle status");
-
-      if (!user) {
-        sendJson(res, 404, { error: "Pending professional account not found." });
-        return;
-      }
-      sendJson(res, 200, {
-        message: `${user.name}'s account was ${body.status}.`,
-        user
-      });
-    } catch (error) {
-      sendJson(res, 400, { error: "Unable to update this professional account." });
-    }
-    return;
-  }
-
-  if (req.method === "POST" && req.url === "/api/auth/professional/request-code") {
-    try {
-      const body = await parseBody(req);
-      const errors = validateProfessionalCredentials(body);
-      if (Object.keys(errors).length) {
-        sendJson(res, 400, { error: "Unable to send verification code.", fields: errors });
-        return;
-      }
-
-      if (!mongoConnected) {
-        sendJson(res, 503, {
-          error: "MongoDB is not connected. Professional OTP cannot be sent safely."
-        });
-        return;
-      }
-
-      const email = normalizeEmail(body.email);
-      const user = await findUser(email, "professional");
-      const statusError = professionalStatusError(user);
-      if (statusError) {
-        sendJson(res, statusError.statusCode, { error: statusError.error });
-        return;
-      }
-      const passwordOk = await validateUserPassword(user, body.password);
-      if (!passwordOk) {
-        sendJson(res, 401, { error: "Invalid email or password." });
-        return;
-      }
-      if (!user.telegramChatId) {
-        sendJson(res, 409, {
-          error: "Telegram is not linked to this account. Click Connect Telegram and tap Start in the bot first."
-        });
-        return;
-      }
-
-      const otp = generateOtp();
-      const expiresAt = Date.now() + OTP_TTL_MS;
-      otpStore.set(email, {
-        hash: hashOtp(email, otp),
-        expiresAt,
-        attempts: 0
-      });
-
-      const message = `QuickAid verification code for ${email}: ${otp}. It expires in 5 minutes.`;
-      let delivery = { delivered: false, reason: "telegram_not_configured" };
-      try {
-        delivery = await sendTelegramMessage(message, user.telegramChatId);
-      } catch (error) {
-        console.error("Telegram OTP delivery failed:", error.message);
-        delivery = { delivered: false, reason: "telegram_failed" };
-      }
-
-      if (!delivery.delivered) {
-        otpStore.delete(email);
-        sendJson(res, 502, {
-          error: "Telegram could not deliver the code. Reconnect Telegram and try again."
-        });
-        return;
-      }
-
-      console.log(`QuickAid OTP for ${email}: ${otp}`);
-      sendJson(res, 200, {
-        message: "Verification code sent to the Telegram account linked to this professional.",
-        expiresInSeconds: OTP_TTL_MS / 1000,
-        delivery: "telegram"
-      });
-    } catch (error) {
-      sendJson(res, 400, { error: "Invalid request payload." });
-    }
-    return;
-  }
-
   if (req.method === "POST" && req.url === "/api/auth/professional") {
     try {
       const body = await parseBody(req);
-      const errors = validateProfessionalLogin(body);
+      const errors = validateProfessionalCredentials(body);
       if (Object.keys(errors).length) {
         sendJson(res, 400, { error: "Unable to sign in.", fields: errors });
         return;
@@ -1638,187 +1301,24 @@ async function handleApi(req, res) {
       }
 
       const email = normalizeEmail(body.email);
-      const user = await findUser(email, "professional");
-      const statusError = professionalStatusError(user);
-      if (statusError) {
-        sendJson(res, statusError.statusCode, { error: statusError.error });
-        return;
-      }
-      const passwordOk = await validateUserPassword(user, body.password);
-      if (!passwordOk) {
-        sendJson(res, 401, { error: "Invalid email or password." });
+      const authentication = await authenticateUser(req, "professional", email, body.password);
+      if (!authentication.user) {
+        sendJson(res, authentication.statusCode, { error: authentication.error });
         return;
       }
 
-      const record = otpStore.get(email);
-      if (!record) {
-        sendJson(res, 400, { error: "Request a verification code first." });
-        return;
-      }
-      if (Date.now() > record.expiresAt) {
-        otpStore.delete(email);
-        sendJson(res, 400, { error: "Verification code expired. Request a new code." });
-        return;
-      }
-      if (record.attempts >= OTP_MAX_ATTEMPTS) {
-        otpStore.delete(email);
-        sendJson(res, 429, { error: "Too many incorrect attempts. Request a new code." });
-        return;
-      }
-
-      const providedHash = hashOtp(email, body.verification);
-      const expected = Buffer.from(record.hash, "hex");
-      const provided = Buffer.from(providedHash, "hex");
-      if (!crypto.timingSafeEqual(expected, provided)) {
-        record.attempts += 1;
-        sendJson(res, 400, {
-          error: `Incorrect verification code. ${OTP_MAX_ATTEMPTS - record.attempts} attempts left.`
-        });
-        return;
-      }
-
-      otpStore.delete(email);
+      const { user } = authentication;
+      user.status = "approved";
+      user.approvedAt ||= new Date();
       user.lastLoginAt = new Date();
       await user.save();
       sendJson(res, 200, {
         message: "Professional access approved.",
-        session: buildSession("professional", email),
+        session: createUserSession(res, req, user),
         redirectTo: "/#/dashboard"
       });
     } catch (error) {
       sendJson(res, 400, { error: "Invalid request payload." });
-    }
-    return;
-  }
-
-  if (req.method === "POST" && req.url === "/api/auth/professional/reset/request") {
-    try {
-      const body = await parseBody(req);
-      if (!validEmail(body.email)) {
-        sendJson(res, 400, { error: "Enter a valid work email." });
-        return;
-      }
-      if (!mongoConnected) {
-        sendJson(res, 503, { error: "MongoDB is not connected. Password reset is unavailable." });
-        return;
-      }
-
-      const email = normalizeEmail(body.email);
-      const user = await findUser(
-        email,
-        "professional",
-        "+passwordResetCodeHash +passwordResetExpiresAt +passwordResetAttempts"
-      );
-      const statusError = professionalStatusError(user);
-      if (statusError) {
-        sendJson(res, statusError.statusCode, { error: statusError.error });
-        return;
-      }
-      if (!user.telegramChatId) {
-        sendJson(res, 409, {
-          error: "Telegram is not linked to this account. Contact your agency administrator for password assistance."
-        });
-        return;
-      }
-
-      const code = generateOtp();
-      user.passwordResetCodeHash = secureHash(`${email}:${code}`, "password-reset");
-      user.passwordResetExpiresAt = new Date(Date.now() + OTP_TTL_MS);
-      user.passwordResetAttempts = 0;
-      await user.save();
-
-      try {
-        const delivery = await sendTelegramMessage(
-          `QuickAid password reset code for ${email}: ${code}. It expires in 5 minutes. If you did not request this, ignore this message.`,
-          user.telegramChatId
-        );
-        if (!delivery.delivered) throw new Error("Telegram is not configured");
-      } catch (error) {
-        user.passwordResetCodeHash = "";
-        user.passwordResetExpiresAt = undefined;
-        user.passwordResetAttempts = 0;
-        await user.save();
-        console.error("Telegram password reset delivery failed:", error.message);
-        sendJson(res, 502, { error: "Telegram could not deliver the reset code. Try again later." });
-        return;
-      }
-
-      sendJson(res, 200, {
-        message: "A password reset code was sent to the Telegram account linked to this professional."
-      });
-    } catch (error) {
-      console.error("Password reset request failed:", error.message);
-      sendJson(res, 400, { error: "Unable to request a password reset." });
-    }
-    return;
-  }
-
-  if (req.method === "POST" && req.url === "/api/auth/professional/reset/confirm") {
-    try {
-      const body = await parseBody(req);
-      const errors = validatePasswordReset(body);
-      if (Object.keys(errors).length) {
-        sendJson(res, 400, { error: "Unable to reset password.", fields: errors });
-        return;
-      }
-      if (!mongoConnected) {
-        sendJson(res, 503, { error: "MongoDB is not connected. Password reset is unavailable." });
-        return;
-      }
-
-      const email = normalizeEmail(body.email);
-      const user = await findUser(
-        email,
-        "professional",
-        "+passwordResetCodeHash +passwordResetExpiresAt +passwordResetAttempts"
-      );
-      const statusError = professionalStatusError(user);
-      if (statusError) {
-        sendJson(res, statusError.statusCode, { error: statusError.error });
-        return;
-      }
-      if (!user.passwordResetCodeHash || !user.passwordResetExpiresAt) {
-        sendJson(res, 400, { error: "Request a password reset code first." });
-        return;
-      }
-      if (Date.now() > user.passwordResetExpiresAt.getTime()) {
-        user.passwordResetCodeHash = "";
-        user.passwordResetExpiresAt = undefined;
-        user.passwordResetAttempts = 0;
-        await user.save();
-        sendJson(res, 400, { error: "Reset code expired. Request a new code." });
-        return;
-      }
-      if (user.passwordResetAttempts >= OTP_MAX_ATTEMPTS) {
-        user.passwordResetCodeHash = "";
-        user.passwordResetExpiresAt = undefined;
-        user.passwordResetAttempts = 0;
-        await user.save();
-        sendJson(res, 429, { error: "Too many incorrect attempts. Request a new code." });
-        return;
-      }
-
-      const suppliedHash = secureHash(`${email}:${body.code}`, "password-reset");
-      const expected = Buffer.from(user.passwordResetCodeHash, "hex");
-      const supplied = Buffer.from(suppliedHash, "hex");
-      if (!crypto.timingSafeEqual(expected, supplied)) {
-        user.passwordResetAttempts += 1;
-        await user.save();
-        sendJson(res, 400, {
-          error: `Incorrect reset code. ${OTP_MAX_ATTEMPTS - user.passwordResetAttempts} attempts left.`
-        });
-        return;
-      }
-
-      user.passwordHash = await hashPassword(body.password);
-      user.passwordResetCodeHash = "";
-      user.passwordResetExpiresAt = undefined;
-      user.passwordResetAttempts = 0;
-      await user.save();
-      sendJson(res, 200, { message: "Password updated. You can now sign in with your new password." });
-    } catch (error) {
-      console.error("Password reset confirmation failed:", error.message);
-      sendJson(res, 400, { error: "Unable to reset password." });
     }
     return;
   }
@@ -1832,29 +1332,32 @@ async function handleApi(req, res) {
         return;
       }
 
-      if (mongoConnected && body.provider !== "google") {
+      let user;
+      if (body.provider === "google") {
+        user = {
+          _id: "google-demo",
+          email: "google-user@quickaid.local",
+          role: "public"
+        };
+      } else {
+        if (!mongoConnected) {
+          sendJson(res, 503, { error: "MongoDB is not connected. Personal sign-in is unavailable." });
+          return;
+        }
         const email = normalizeEmail(body.email);
-        const user = await User.findOne({ email });
-        if (user && user.role !== "public") {
-          sendJson(res, 403, { error: "Use the professional login for this account." });
+        const authentication = await authenticateUser(req, "public", email, body.password);
+        if (!authentication.user) {
+          sendJson(res, authentication.statusCode, { error: authentication.error });
           return;
         }
-        if (!user) {
-          sendJson(res, 404, { error: "Account not found. Create a volunteer account first." });
-          return;
-        }
-        const passwordOk = await validateUserPassword(user, body.password);
-        if (!passwordOk) {
-          sendJson(res, 401, { error: "Invalid email or password." });
-          return;
-        }
+        user = authentication.user;
         user.lastLoginAt = new Date();
         await user.save();
       }
 
       sendJson(res, 200, {
         message: body.provider === "google" ? "Google demo sign-in approved." : "Public access approved.",
-        session: buildSession("public", body.email || "google-user@quickaid.local"),
+        session: createUserSession(res, req, user),
         redirectTo: "/#/dashboard"
       });
     } catch (error) {
@@ -1891,7 +1394,7 @@ async function handleApi(req, res) {
         .filter(Boolean)
         .slice(0, 8);
 
-      await User.create({
+      const user = await User.create({
         name: String(body.name).trim(),
         email,
         passwordHash: await hashPassword(body.password),
@@ -1909,7 +1412,7 @@ async function handleApi(req, res) {
 
       sendJson(res, 201, {
         message: "Volunteer account created successfully.",
-        session: buildSession("public", email),
+        session: createUserSession(res, req, user),
         redirectTo: "/#/dashboard"
       });
     } catch (error) {
@@ -2022,6 +1525,5 @@ connectDB().then((connected) => {
 }).finally(() => {
   server.listen(PORT, HOST, () => {
     console.log(`QuickAid running at http://${HOST}:${PORT}`);
-    pollTelegramUpdates();
   });
 });

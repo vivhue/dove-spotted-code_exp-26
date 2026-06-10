@@ -21,7 +21,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["professional", "public", "admin"],
+      enum: ["professional", "public"],
       required: true
     },
     status: {
@@ -108,6 +108,15 @@ const userSchema = new mongoose.Schema(
     },
     lastLoginAt: {
       type: Date
+    },
+    failedLoginAttempts: {
+      type: Number,
+      select: false,
+      default: 0
+    },
+    loginLockedUntil: {
+      type: Date,
+      select: false
     }
   },
   {

@@ -1088,6 +1088,28 @@ p {
   gap: 12px;
 }
 
+.ops-menu-button,
+.ops-menu-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ops-menu-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+}
+
+.ops-menu-button:hover,
+.ops-menu-button[aria-expanded="true"] {
+  background: #eef1ef;
+}
+
 .hamburger-lines {
   width: 34px;
   height: 24px;
@@ -1095,6 +1117,131 @@ p {
     linear-gradient(#121312, #121312) 0 2px/34px 4px no-repeat,
     linear-gradient(#121312, #121312) 0 10px/34px 4px no-repeat,
     linear-gradient(#121312, #121312) 0 18px/34px 4px no-repeat;
+}
+
+.ops-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(18, 19, 18, 0.38);
+  backdrop-filter: blur(2px);
+}
+
+.ops-menu-backdrop[hidden] {
+  display: none;
+}
+
+.ops-navigation {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  width: min(380px, calc(100vw - 28px));
+  padding: 22px 18px;
+  border-right: 1px solid #cbd0cc;
+  background: #fff;
+  box-shadow: 18px 0 48px rgba(18, 19, 18, 0.18);
+  transform: translateX(-105%);
+  transition: transform 180ms ease;
+}
+
+.ops-navigation.open {
+  transform: translateX(0);
+}
+
+.ops-navigation-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 66px;
+  padding: 4px 4px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ops-navigation-header strong,
+.ops-navigation-header span {
+  display: block;
+}
+
+.ops-navigation-header strong {
+  font-size: 20px;
+}
+
+.ops-navigation-header span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ops-menu-close {
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+}
+
+.ops-menu-close:hover {
+  background: #eef1ef;
+}
+
+.ops-menu-close .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.ops-navigation-links {
+  display: grid;
+  gap: 7px;
+  padding-top: 18px;
+}
+
+.ops-navigation-links > a,
+.ops-navigation-links > button {
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  min-height: 68px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 11px 13px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-navigation-links > a:hover,
+.ops-navigation-links > button:hover,
+.ops-navigation-links > .active {
+  border-color: #d5dbd7;
+  background: #eef4f0;
+}
+
+.ops-navigation-links .icon {
+  width: 23px;
+  height: 23px;
+  color: var(--teal-dark);
+}
+
+.ops-navigation-links strong,
+.ops-navigation-links small {
+  display: block;
+}
+
+.ops-navigation-links strong {
+  font-size: 15px;
+}
+
+.ops-navigation-links small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
 }
 
 .ops-header h1 {
