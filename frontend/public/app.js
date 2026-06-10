@@ -23,6 +23,69 @@ const capabilities = [
   ["Dynamic Evacuation Routing", "Smart rerouting during emergencies"]
 ];
 
+let emergencySpacesState = [];
+let emergencySpacesLoaded = false;
+let emergencySpacesSeed = [];
+let simulationScenarios = [];
+let opsMenuKeydownHandler = null;
+
+const DEFAULT_DASHBOARD_STATS = {
+  activeIncidents: 5,
+  volunteersOnStandby: 18,
+  sheltersAvailable: 3,
+  riskAlert: "Low"
+};
+
+const DEFAULT_SIMULATION_BRIEFING = "Standby. Run a scenario to generate a rule-based operations briefing.";
+const DEFAULT_RESOURCE_SUMMARY = "No simulation is running. Resource demand summaries will appear here.";
+const DEFAULT_ALERTS = ["No active simulation alerts."];
+const DEFAULT_LIVE_ACTIVITY = [
+  "<strong>12:42</strong> SCDF deployed to Jurong West",
+  "<strong>12:47</strong> PIE congestion elevated",
+  "<strong>12:51</strong> Shelter activation recommended",
+  "<strong>12:53</strong> NUH occupancy exceeded threshold"
+];
+
+const simulationState = {
+  activeScenario: null,
+  selectedScenarioId: "",
+  incidents: [],
+  resources: [],
+  volunteers: [],
+  supplies: [],
+  alerts: [],
+  riskScores: [],
+  briefing: "",
+  stats: { ...DEFAULT_DASHBOARD_STATS }
+};
+
+const volunteerDispatchState = {
+  loaded: false,
+  volunteers: [],
+  selectedIncidentId: "",
+  filters: {
+    skill: "",
+    zone: "",
+    availability: "",
+    status: ""
+  },
+  smartMatchActive: false,
+  smartMatchScores: new Map()
+};
+
+const VOLUNTEER_AVAILABILITY = ["Available", "Off Duty"];
+const VOLUNTEER_STATUSES = ["Available", "Assigned", "En Route", "On Site", "Completed", "Off Duty"];
+const DISPATCH_ZONES = ["Jurong West", "Jurong East", "Bedok", "Tampines", "Changi", "Clementi", "Bukit Timah"];
+const DISPATCH_ZONE_COORDS = {
+  "Jurong West": [1.3507, 103.7004],
+  "Jurong East": [1.3331, 103.7422],
+  Bedok: [1.3236, 103.9273],
+  Tampines: [1.3496, 103.9568],
+  Changi: [1.3644, 103.9915],
+  Clementi: [1.3151, 103.7652],
+  "Bukit Timah": [1.3294, 103.8021]
+};
+
 function shieldIcon() {
   return `
     <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
@@ -68,16 +131,6 @@ function header({ backHref = "", nav = false } = {}) {
       `}
     </header>
   `;
-}
-
-function dashboardSimulationAction() {
-  const template = document.querySelector("#dashboard-simulation-action");
-  return template?.innerHTML.trim() || `<button class="secondary-button compact" type="button" data-open-simulator>Incident Simulator</button>`;
-}
-
-function dashboardEmergencySpacesAction() {
-  const template = document.querySelector("#dashboard-emergency-spaces-action");
-  return template?.innerHTML.trim() || `<button class="secondary-button compact" type="button" data-open-emergency-spaces>Emergency Spaces</button>`;
 }
 
 function renderLanding() {
@@ -554,6 +607,68 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function normalizeEmailAddress(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function loadLocalVolunteerAccounts() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_VOLUNTEER_ACCOUNTS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveLocalVolunteerAccounts(accounts) {
+  localStorage.setItem(LOCAL_VOLUNTEER_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+function buildLocalDemoSession(account) {
+  return {
+    role: "public",
+    email: normalizeEmailAddress(account.email),
+    issuedAt: new Date().toISOString(),
+    demoMode: true,
+    authSource: "localStorage"
+  };
+}
+
+function isMongoUnavailable(result) {
+  const errorText = String(result?.error || "").toLowerCase();
+  return errorText.includes("mongodb") && (errorText.includes("unavailable") || errorText.includes("connected"));
+}
+
+function createLocalVolunteerAccount(data) {
+  const accounts = loadLocalVolunteerAccounts();
+  const email = normalizeEmailAddress(data.email);
+  if (accounts.some((account) => normalizeEmailAddress(account.email) === email)) {
+    throw new Error("A local demo volunteer account already exists for this email. Sign in instead.");
+  }
+
+  const account = {
+    name: String(data.name || "").trim(),
+    email,
+    phone: String(data.phone || "").trim(),
+    postalCode: String(data.postalCode || "").trim(),
+    password: String(data.password || ""),
+    availability: String(data.availability || "").trim(),
+    skills: Array.isArray(data.skills) ? data.skills : [],
+    createdAt: new Date().toISOString()
+  };
+  accounts.push(account);
+  saveLocalVolunteerAccounts(accounts);
+  return account;
+}
+
+function authenticateLocalVolunteerAccount(payload) {
+  const email = normalizeEmailAddress(payload.email);
+  const password = String(payload.password || "");
+  return loadLocalVolunteerAccounts().find((account) => (
+    normalizeEmailAddress(account.email) === email && account.password === password
+  )) || null;
+}
+
 async function submitProfessionalSignup(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -700,6 +815,21 @@ async function submitVolunteerSignup(event) {
     });
     const result = await response.json();
     if (!response.ok) {
+      if (response.status === 503 && isMongoUnavailable(result)) {
+        try {
+          const account = createLocalVolunteerAccount(data);
+          localStorage.setItem("quickaid-session", JSON.stringify(buildLocalDemoSession(account)));
+          status.textContent = `Volunteer account created locally. ${DEMO_MODE_WARNING}`;
+          status.classList.add("success");
+          window.setTimeout(() => {
+            window.location.hash = "#/dashboard";
+          }, 650);
+        } catch (fallbackError) {
+          status.textContent = fallbackError.message;
+          status.classList.add("error");
+        }
+        return;
+      }
       status.textContent = formatAuthError(result, "Unable to create your account.");
       status.classList.add("error");
       return;
@@ -751,6 +881,21 @@ async function submitLogin(role, payload) {
     });
     const result = await response.json();
     if (!response.ok) {
+      if (role === "public" && payload.provider !== "google" && response.status === 503 && isMongoUnavailable(result)) {
+        const localAccount = authenticateLocalVolunteerAccount(payload);
+        if (localAccount) {
+          localStorage.setItem("quickaid-session", JSON.stringify(buildLocalDemoSession(localAccount)));
+          status.textContent = `Signed in with your local volunteer demo account. ${DEMO_MODE_WARNING}`;
+          status.classList.add("success");
+          window.setTimeout(() => {
+            window.location.hash = "#/dashboard";
+          }, 450);
+        } else {
+          status.textContent = `${DEMO_MODE_WARNING}. No matching local volunteer account was found for this email/password.`;
+          status.classList.add("error");
+        }
+        return;
+      }
       status.textContent = formatAuthError(result, "Unable to sign in.");
       status.classList.add("error");
       return;
@@ -769,19 +914,24 @@ async function submitLogin(role, payload) {
 
 async function renderDashboard() {
   let session;
-  try {
-    const response = await fetch("/api/auth/session");
-    const result = await response.json();
-    if (!response.ok) {
-      localStorage.removeItem("quickaid-session");
-      window.location.hash = "#/login";
+  const cachedSession = JSON.parse(localStorage.getItem("quickaid-session") || "null");
+  if (cachedSession?.demoMode && cachedSession?.authSource === "localStorage") {
+    session = cachedSession;
+  } else {
+    try {
+      const response = await fetch("/api/auth/session");
+      const result = await response.json();
+      if (!response.ok) {
+        localStorage.removeItem("quickaid-session");
+        window.location.hash = "#/login";
+        return;
+      }
+      session = result.session;
+      localStorage.setItem("quickaid-session", JSON.stringify(session));
+    } catch (error) {
+      app.innerHTML = `<p class="page-load-error">Unable to verify your session. Check that QuickAid is running.</p>`;
       return;
     }
-    session = result.session;
-    localStorage.setItem("quickaid-session", JSON.stringify(session));
-  } catch (error) {
-    app.innerHTML = `<p class="page-load-error">Unable to verify your session. Check that QuickAid is running.</p>`;
-    return;
   }
   const isProfessional = session?.role === "professional";
   emergencySpacesLoaded = false;
@@ -825,8 +975,6 @@ async function renderDashboard() {
           <div class="ops-actions">
             <span class="ops-live">${icon("activity")} Live</span>
             <span class="updated-pill">Last Updated : 5:00 PM</span>
-            <a class="secondary-button compact" href="#/flood-map">${icon("alert")} Live Flood Map</a>
-            <a class="secondary-button compact" href="#/risk-prediction">${icon("activity")} Risk Prediction</a>
             <button class="secondary-button compact" data-signout>Sign Out</button>
           </div>
         </header>
@@ -855,6 +1003,12 @@ async function renderDashboard() {
           ${icon("alert")}
           <strong>Critical flooding detected in Jurong West. National University Hospital occupancy is high. There is an accident at TPE, currently SCDF is there rescuing the victim.</strong>
         </section>
+
+        ${session?.demoMode ? `
+          <section class="demo-mode-banner" role="status">
+            <strong>${DEMO_MODE_WARNING}</strong>
+          </section>
+        ` : ""}
 
         <section class="ops-metrics" aria-label="Live emergency metrics">
           ${opsMetric({ id: "active-incidents", label: "Active Incidents", value: String(DEFAULT_DASHBOARD_STATS.activeIncidents), tone: "danger" })}
@@ -1010,6 +1164,27 @@ async function renderDashboard() {
     localStorage.removeItem("quickaid-session");
     window.location.hash = "#/";
   });
+
+  document.querySelector("[data-open-simulator]").addEventListener("click", () => {
+    closeOpsMenu();
+    showIncidentSimulatorSection();
+  });
+  document.querySelector("[data-open-emergency-spaces]").addEventListener("click", () => {
+    closeOpsMenu();
+    showEmergencySpacesSection();
+  });
+  document.querySelector("[data-open-volunteer-dispatch]").addEventListener("click", () => {
+    closeOpsMenu();
+    showVolunteerDispatchSection(session);
+  });
+  document.querySelector("[data-scenario-select]").addEventListener("change", (event) => {
+    simulationState.selectedScenarioId = event.currentTarget.value;
+    renderIncidentSimulator();
+  });
+  document.querySelector("[data-run-simulation]").addEventListener("click", () => {
+    runSimulation(simulationState.selectedScenarioId);
+  });
+  document.querySelector("[data-reset-simulation]").addEventListener("click", resetSimulation);
 
   initOneMapDashboard();
   renderQuickStats();
@@ -1927,6 +2102,36 @@ function dengueListItem({ caseSize, locality }, index) {
       <button type="button" class="map-locate-button" data-locate-dengue="${index}">Locate</button>
     </article>
   `;
+}
+
+function ringToLatLngs(ring) {
+  return ring.map(([lng, lat]) => [lat, lng]);
+}
+
+function lineStringToLatLngs(coordinates) {
+  return coordinates.map(([lng, lat]) => [lat, lng]);
+}
+
+
+function geoJsonFeatureToLayer(feature, options) {
+  if (typeof L.geoJSON === "function") {
+    return L.geoJSON(feature, options);
+  }
+
+  const geometry = feature.geometry || {};
+  const style = typeof options?.style === "function" ? options.style(feature) : options?.style;
+
+  if (geometry.type === "Polygon") {
+    const rings = geometry.coordinates.map(ringToLatLngs);
+    return L.polygon(rings, style);
+  }
+
+  if (geometry.type === "MultiPolygon") {
+    const polygons = geometry.coordinates.map((polygon) => polygon.map(ringToLatLngs));
+    return L.polygon(polygons, style);
+  }
+
+  return L.layerGroup();
 }
 
 function floodListItem({ record, reading }, index) {
