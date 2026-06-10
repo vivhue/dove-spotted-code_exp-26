@@ -2094,3 +2094,251 @@ p {
     align-items: stretch;
   }
 }
+
+.risk-level-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 24px;
+}
+
+.risk-level-low {
+  background: #e7f8ef;
+  color: #177245;
+}
+
+.risk-level-medium {
+  background: #fff2db;
+  color: #b36b00;
+}
+
+.risk-level-high {
+  background: #fee4e2;
+  color: #c0312c;
+}
+
+.simulation-suite-section,
+.emergency-spaces-panel-section,
+.volunteer-dispatch-section {
+  margin-top: 28px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 22px;
+}
+
+.simulation-suite-header,
+.emergency-spaces-header,
+.volunteer-dispatch-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+.simulation-suite-note,
+.volunteer-dispatch-note,
+.emergency-spaces-subtitle,
+.dispatch-panel-note,
+.dispatch-notification,
+.emergency-spaces-message {
+  color: var(--muted);
+}
+
+.incident-simulator-card,
+.volunteer-dispatch-panel,
+.dispatch-assignment-panel,
+.dispatch-public-form {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fbfcfb;
+  padding: 18px;
+}
+
+.incident-simulator-card h3,
+.dispatch-public-form h3,
+.dispatch-assignment-panel h3 {
+  margin-top: 0;
+}
+
+.simulation-field,
+.dispatch-toolbar-grid label,
+.dispatch-form-grid label,
+.dispatch-form-row label {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.incident-simulator-preview {
+  margin: 18px 0;
+  border: 1px dashed #c8d0cb;
+  border-radius: 14px;
+  background: #f7faf8;
+  padding: 16px;
+}
+
+.simulation-preview-grid,
+.emergency-space-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.simulation-preview-grid dt,
+.emergency-space-stats dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.simulation-preview-grid dd,
+.emergency-space-stats dd {
+  margin: 4px 0 0;
+  font-weight: 800;
+}
+
+.incident-simulator-actions,
+.dispatch-toolbar-actions,
+.dispatch-inline-actions,
+.dispatch-form-row,
+.dispatch-volunteer-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.simulation-empty,
+.dispatch-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.simulation-empty.error,
+.dispatch-empty.error,
+.dispatch-banner.error,
+.dispatch-status-message.error {
+  color: #c0312c;
+}
+
+.emergency-spaces-grid,
+.dispatch-volunteer-grid,
+.dispatch-public-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.emergency-space-card,
+.dispatch-volunteer-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fbfcfb;
+  padding: 16px;
+}
+
+.emergency-space-card-head,
+.dispatch-volunteer-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.emergency-space-card-head h3,
+.dispatch-volunteer-top h3 {
+  margin: 0 0 6px;
+}
+
+.emergency-space-card-head p,
+.dispatch-volunteer-top p,
+.dispatch-volunteer-skills,
+.dispatch-volunteer-match {
+  margin: 0;
+}
+
+.emergency-space-badge,
+.volunteer-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.emergency-space-badge.is-inactive,
+.volunteer-status-badge.is-off-duty {
+  background: #eef1ef;
+  color: #44524b;
+}
+
+.emergency-space-badge.is-ready,
+.volunteer-status-badge.is-available,
+.volunteer-status-badge.is-completed {
+  background: #e7f8ef;
+  color: #177245;
+}
+
+.emergency-space-badge.is-nearly-full,
+.volunteer-status-badge.is-assigned,
+.volunteer-status-badge.is-en-route {
+  background: #fff2db;
+  color: #b36b00;
+}
+
+.emergency-space-badge.is-full,
+.volunteer-status-badge.is-on-site {
+  background: #fee4e2;
+  color: #c0312c;
+}
+
+.dispatch-toolbar {
+  display: grid;
+  gap: 14px;
+}
+
+.dispatch-toolbar-grid,
+.dispatch-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.dispatch-form-span {
+  grid-column: 1 / -1;
+}
+
+.dispatch-assignment-box {
+  border: 1px solid #d6e4da;
+  border-radius: 14px;
+  background: #f6fbf7;
+  padding: 14px;
+}
+
+.dispatch-banner {
+  margin: 0 0 14px;
+  font-weight: 700;
+}
+
+.dispatch-status-message.success {
+  color: #177245;
+}
+
+@media (max-width: 900px) {
+  .simulation-suite-section,
+  .emergency-spaces-panel-section,
+  .volunteer-dispatch-section {
+    padding: 18px;
+  }
+
+  .dispatch-public-layout {
+    grid-template-columns: 1fr;
+  }
+}
