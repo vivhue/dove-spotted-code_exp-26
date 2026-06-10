@@ -2801,6 +2801,7 @@ async function renderEvacuationRouting() {
 
       updatedLabel.textContent = `Last updated ${formatDateTime(payload.fetchedAt)}${payload.demo ? " · demo data" : ""}`;
     } catch (error) {
+      routeLayer.clearLayers();
       summaryEl.innerHTML = `<p class="map-empty error">${error.message}</p>`;
     }
   }

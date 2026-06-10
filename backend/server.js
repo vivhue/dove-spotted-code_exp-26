@@ -278,6 +278,12 @@ async function fetchOrsRoute(start, end, avoidPolygons) {
   return response.json();
 }
 
+function routeCoordsMatch(a, b) {
+  const coordsA = a?.features?.[0]?.geometry?.coordinates;
+  const coordsB = b?.features?.[0]?.geometry?.coordinates;
+  return JSON.stringify(coordsA) === JSON.stringify(coordsB);
+}
+
 function isValidCoord(value) {
   return value && Number.isFinite(value.lat) && Number.isFinite(value.lng);
 }
@@ -1209,26 +1215,20 @@ async function handleApi(req, res) {
 
       let baseline = null;
       let rerouted = null;
-      let demo = requestedDemo;
-
-      if (!demo && ORS_API_KEY) {
-        try {
-          baseline = await fetchOrsRoute(start, end, null);
-          rerouted = avoidPolygons.coordinates.length
-            ? await fetchOrsRoute(start, end, avoidPolygons)
-            : baseline;
-        } catch (error) {
-          console.error("Evacuation: ORS routing failed, falling back to demo route:", error.message);
-          demo = true;
-        }
-      } else {
-        demo = true;
-      }
+      const demo = requestedDemo || !ORS_API_KEY;
 
       if (demo) {
         const demoData = loadEvacuationDemoData();
         baseline = demoData.baselineRoute;
         rerouted = demoData.reroutedRoute;
+      } else {
+        baseline = await fetchOrsRoute(start, end, null);
+        if (avoidPolygons.coordinates.length) {
+          const reroutedRoute = await fetchOrsRoute(start, end, avoidPolygons);
+          if (!routeCoordsMatch(reroutedRoute, baseline)) {
+            rerouted = reroutedRoute;
+          }
+        }
       }
 
       sendJson(res, 200, {
@@ -1240,7 +1240,8 @@ async function handleApi(req, res) {
         fetchedAt: new Date().toISOString()
       });
     } catch (error) {
-      sendJson(res, 500, { error: "Unable to compute evacuation route." });
+      console.error("Evacuation: routing failed:", error.message);
+      sendJson(res, 502, { error: "Unable to compute a route between these locations right now." });
     }
     return;
   }
