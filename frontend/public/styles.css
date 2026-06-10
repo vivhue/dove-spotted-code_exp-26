@@ -1850,3 +1850,295 @@ p {
     align-items: stretch;
   }
 }
+
+/* ── Analytics page redesign ──────────────────────────────── */
+
+.analytics-shell {
+  max-width: 1180px;
+  margin: 18px auto;
+  padding: 18px 24px 60px;
+}
+
+.analytics-header {
+  margin-bottom: 28px;
+}
+
+/* Section A – Summary metric cards */
+.analytics-summary {
+  margin-bottom: 36px;
+}
+
+.analytics-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* Section B – Chart pair */
+.analytics-charts {
+  margin-bottom: 36px;
+}
+
+.analytics-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.analytics-chart-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 20px rgba(18,19,18,0.05);
+}
+
+.analytics-chart-card p {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 760;
+  color: var(--muted);
+}
+
+/* Section C – Shelter utilisation */
+.analytics-shelters {
+  margin-bottom: 36px;
+}
+
+.analytics-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.analytics-section-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.analytics-section-head .muted {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.analytics-shelter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.analytics-shelter-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 12px rgba(18,19,18,0.05);
+}
+
+.analytics-shelter-card span {
+  font-size: 13px;
+  font-weight: 760;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.analytics-shelter-card strong {
+  font-size: 32px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--teal);
+}
+
+/* Section D – AI Strategic Insights */
+.analytics-insights {
+  margin-bottom: 20px;
+}
+
+.analytics-insights > h2 {
+  font-size: 20px;
+  margin-bottom: 16px;
+}
+
+.analytics-insights-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.analytics-insight-card {
+  padding: 20px 22px;
+  border-left: 5px solid var(--teal);
+  border-radius: 8px;
+  background: var(--mist);
+}
+
+.analytics-insight-card h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.analytics-insight-card ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.analytics-insight-card ul li {
+  margin-bottom: 4px;
+}
+
+.analytics-insight-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.analytics-risk-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.analytics-risk-badge--critical {
+  background: #fde8e8;
+  color: #a92525;
+}
+
+.analytics-risk-badge--high {
+  background: #fff3e0;
+  color: #c47a1b;
+}
+
+.analytics-risk-badge--medium {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.analytics-insight-card.risk-critical {
+  border-left-color: var(--red);
+  background: #fdf2f2;
+}
+
+.analytics-insight-card.risk-high {
+  border-left-color: var(--amber);
+  background: #fdf8ee;
+}
+
+.analytics-insight-card.risk-medium {
+  border-left-color: #0369a1;
+  background: #f0f7fd;
+}
+
+/* ── Risk Prediction – checkbox filter panel ─────────────── */
+
+.risk-filter-panel {
+  margin-top: 8px;
+}
+
+.risk-filter-search {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  margin-bottom: 12px;
+  cursor: default;
+  font-size: 14px;
+}
+
+.risk-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.risk-filter-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--panel);
+  margin: 0;
+}
+
+.risk-filter-group legend {
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+.risk-filter-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.risk-filter-group input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+
+/* AI Predictions panel – Expected Impact list */
+.ai-impact-list {
+  padding-left: 18px;
+  margin: 6px 0 12px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.ai-impact-list li {
+  margin-bottom: 4px;
+}
+
+/* ── Responsive overrides ─────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .analytics-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .analytics-charts-grid,
+  .analytics-insights-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-shelter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .risk-checkbox-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .analytics-summary-grid,
+  .analytics-shelter-grid,
+  .risk-checkbox-grid {
+    grid-template-columns: 1fr;
+  }
+}

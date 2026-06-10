@@ -50,4 +50,66 @@ function resourcesUsage(req, res) {
   res.end(JSON.stringify({ resources: sample, generatedAt: new Date().toISOString() }));
 }
 
-module.exports = { aggregateTrends, resourcesUsage };
+function summaryStats(req, res) {
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({
+    totalIncidents: 67,
+    avgResponseMins: 8,
+    highRiskZones: 4,
+    shelterUtilisation: 82
+  }));
+}
+
+function aiInsights(req, res) {
+  const insights = [
+    {
+      title: 'Flood Risk Increase',
+      riskLevel: 'CRITICAL',
+      recommendations: [
+        'Expand shelter capacity',
+        'Increase drainage monitoring',
+        'Pre-deploy logistics volunteers'
+      ]
+    },
+    {
+      title: 'Fire Response Delays',
+      riskLevel: 'MEDIUM',
+      recommendations: [
+        'Re-route emergency vehicles',
+        'Increase responder standby hours',
+        'Improve dispatch coordination'
+      ]
+    },
+    {
+      title: 'Emerging Hotspot Zones',
+      riskLevel: 'HIGH',
+      recommendations: [
+        'Increase surveillance coverage',
+        'Upgrade emergency infrastructure',
+        'Prioritize resource allocation'
+      ]
+    },
+    {
+      title: 'Hospital Capacity Pressure',
+      riskLevel: 'CRITICAL',
+      recommendations: [
+        'Activate overflow facilities',
+        'Redirect non-critical patients',
+        'Deploy standby medical volunteers'
+      ]
+    },
+    {
+      title: 'Volunteer Availability Decline',
+      riskLevel: 'MEDIUM',
+      recommendations: [
+        'Expand volunteer outreach',
+        'Improve shift coordination',
+        'Activate reserve responder pool'
+      ]
+    }
+  ];
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({ insights, generatedAt: new Date().toISOString() }));
+}
+
+module.exports = { aggregateTrends, resourcesUsage, summaryStats, aiInsights };

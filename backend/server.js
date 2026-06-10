@@ -284,6 +284,15 @@ async function handleApi(req, res) {
   // Route /api/risk/* to backend/risk.js
   if (req.url.startsWith("/api/risk")) {
     try {
+      // DB backed endpoints should be checked before the generic handlers
+      if (req.method === "GET" && req.url.startsWith("/api/risk/heatmap-db")) {
+        await risk.handleHeatmapDb(req, res);
+        return;
+      }
+      if (req.method === "POST" && req.url.startsWith("/api/risk/predict-db")) {
+        await risk.handlePredictDb(req, res);
+        return;
+      }
       if (req.method === "GET" && req.url.startsWith("/api/risk/heatmap")) {
         // default heatmap from upstream API / mock
         await risk.handleHeatmap(req, res, cached);
@@ -291,15 +300,6 @@ async function handleApi(req, res) {
       }
       if (req.method === "POST" && req.url.startsWith("/api/risk/predict")) {
         await risk.handlePredict(req, res);
-        return;
-      }
-      // DB backed endpoints
-      if (req.method === "GET" && req.url.startsWith("/api/risk/heatmap-db")) {
-        await risk.handleHeatmapDb(req, res);
-        return;
-      }
-      if (req.method === "POST" && req.url.startsWith("/api/risk/predict-db")) {
-        await risk.handlePredictDb(req, res);
         return;
       }
     } catch (err) {
@@ -311,6 +311,14 @@ async function handleApi(req, res) {
   // Route /api/analytics/* to backend/analytics.js
   if (req.url.startsWith("/api/analytics")) {
     try {
+      if (req.method === "GET" && req.url.startsWith("/api/analytics/summary")) {
+        analytics.summaryStats(req, res);
+        return;
+      }
+      if (req.method === "GET" && req.url.startsWith("/api/analytics/insights")) {
+        analytics.aiInsights(req, res);
+        return;
+      }
       if (req.method === "GET" && req.url.startsWith("/api/analytics/trends")) {
         analytics.aggregateTrends(req, res);
         return;
@@ -654,6 +662,62 @@ async function handleApi(req, res) {
       });
     } catch (error) {
       sendJson(res, 400, { error: "Invalid request payload." });
+    }
+    return;
+  }
+
+  // --- Debug endpoints for local development ---
+  if (req.url.startsWith('/api/debug/incidents')) {
+    if (req.method === 'GET') {
+      if (!mongoConnected) {
+        sendJson(res, 503, { error: 'MongoDB not connected' });
+        return;
+      }
+      try {
+        const Incident = require('./models/Incident');
+        const items = await Incident.find().sort({ createdAt: -1 }).limit(200).lean();
+        sendJson(res, 200, { count: items.length, incidents: items });
+      } catch (err) {
+        sendJson(res, 500, { error: 'Failed to read incidents' });
+      }
+      return;
+    }
+  }
+
+  if (req.method === 'POST' && req.url === '/api/debug/import') {
+    if (!mongoConnected) {
+      sendJson(res, 503, { error: 'MongoDB not connected' });
+      return;
+    }
+    try {
+      const fpath = path.join(__dirname, 'data', 'compass-incidents.json');
+      if (!fs.existsSync(fpath)) {
+        sendJson(res, 404, { error: 'Import file not found', path: fpath });
+        return;
+      }
+      const raw = fs.readFileSync(fpath, 'utf8');
+      const arr = JSON.parse(raw);
+      const Incident = require('./models/Incident');
+      // Normalize and insert; use ordered:false so insertion continues on error
+      const docs = arr.map((r) => ({
+        reporter: r.reporter || 'anonymous',
+        reporterRole: r.reporterRole || 'public',
+        type: r.type || 'report',
+        severity: r.severity || 'Low',
+        value: r.value || 20,
+        areaDesc: r.areaDesc || r.location || '',
+        location: r.location || r.areaDesc || '',
+        lat: r.lat,
+        lng: r.lng,
+        note: r.note || '',
+        status: r.status || 'open'
+      }));
+      const resInsert = await Incident.insertMany(docs, { ordered: false });
+      sendJson(res, 200, { inserted: Array.isArray(resInsert) ? resInsert.length : 0 });
+    } catch (err) {
+      // insertMany may throw if all documents failed; attempt partial counts where possible
+      console.error('Import failed:', err.message || err);
+      sendJson(res, 500, { error: 'Import failed', message: err.message });
     }
     return;
   }

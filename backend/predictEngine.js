@@ -66,12 +66,30 @@ function evaluate(zoneObservations = [], windowHours = 4) {
     return '12-48h';
   })();
 
+  // Build a simple explanation: list top contributing observations
+  const contributions = (zoneObservations || []).map((o, idx) => {
+    const w = typeof o.weight === 'number' ? o.weight : 1;
+    const v = Number(o.value) || 0;
+    return { index: idx, source: o.source || 'unknown', type: o.type || '', value: v, weight: w, contribution: v * w };
+  }).sort((a, b) => b.contribution - a.contribution);
+
+  const top = contributions.slice(0, 3);
+  let explanation = '';
+  if (!contributions.length) {
+    explanation = 'No observations available; low baseline monitoring used.';
+  } else {
+    const parts = top.map((t) => `${t.source}${t.type ? ' (' + t.type + ')' : ''} value ${t.value}×weight ${t.weight}`);
+    explanation = `Top contributors: ${parts.join('; ')}. Final score is a weighted average of observations.`;
+  }
+
   return {
     riskScore: Math.max(0, Math.min(100, score)),
     severity,
     confidence: Number(confidence.toFixed(2)),
     recommendations: recs,
-    timeToImpact
+    timeToImpact,
+    explanation,
+    contributingFactors: contributions
   };
 }
 
