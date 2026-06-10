@@ -1156,6 +1156,31 @@ function dengueListItem({ caseSize, locality }, index) {
   `;
 }
 
+function ringToLatLngs(ring) {
+  return ring.map(([lng, lat]) => [lat, lng]);
+}
+
+function geoJsonFeatureToLayer(feature, options) {
+  if (typeof L.geoJSON === "function") {
+    return L.geoJSON(feature, options);
+  }
+
+  const geometry = feature.geometry || {};
+  const style = typeof options?.style === "function" ? options.style(feature) : options?.style;
+
+  if (geometry.type === "Polygon") {
+    const rings = geometry.coordinates.map(ringToLatLngs);
+    return L.polygon(rings, style);
+  }
+
+  if (geometry.type === "MultiPolygon") {
+    const polygons = geometry.coordinates.map((polygon) => polygon.map(ringToLatLngs));
+    return L.polygon(polygons, style);
+  }
+
+  return L.layerGroup();
+}
+
 function floodListItem({ record, reading }, index) {
   return `
     <article class="flood-alert-card">
@@ -1313,7 +1338,7 @@ async function renderFloodMap() {
       dengueLayer.clearLayers();
       const entries = features.map((feature) => {
         const info = dengueClusterInfo(feature);
-        const layer = L.geoJSON(feature, {
+        const layer = geoJsonFeatureToLayer(feature, {
           style: () => ({
             color: dengueColor(info.caseSize),
             weight: 1.5,
