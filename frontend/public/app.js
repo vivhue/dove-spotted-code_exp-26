@@ -1671,6 +1671,7 @@ const DENGUE_BUCKETS = [
 let floodMapTimer = null;
 let dengueMapTimer = null;
 let evacuationMapTimer = null;
+let oneMapLeafletBundle = null;
 
 function severityColor(severity) {
   return SEVERITY_COLORS[severity] || "#5e655f";
@@ -1818,10 +1819,19 @@ async function initOneMapDashboard() {
   const mapEl = document.querySelector("#onemap-dashboard-map");
   if (!mapEl) return;
 
+  // OneMap's bundle replaces window.L with its own Leaflet build, which would
+  // break other pages relying on the standard Leaflet loaded in index.html.
+  const standardLeaflet = window.L;
+
   try {
     await loadStylesheet("https://www.onemap.gov.sg/web-assets/libs/leaflet/leaflet.css");
-    await loadScript("https://www.onemap.gov.sg/web-assets/libs/leaflet/onemap-leaflet.js");
-    await loadScript("https://www.onemap.gov.sg/web-assets/libs/leaflet/leaflet-tilejson.js");
+    if (oneMapLeafletBundle) {
+      window.L = oneMapLeafletBundle;
+    } else {
+      await loadScript("https://www.onemap.gov.sg/web-assets/libs/leaflet/onemap-leaflet.js");
+      await loadScript("https://www.onemap.gov.sg/web-assets/libs/leaflet/leaflet-tilejson.js");
+      oneMapLeafletBundle = window.L;
+    }
 
     const tileJsonResponse = await fetch("https://www.onemap.gov.sg/maps/json/raster/tilejson/2.2.0/Default.json");
     const tileJson = await tileJsonResponse.json();
@@ -1843,6 +1853,8 @@ async function initOneMapDashboard() {
     window.addEventListener("resize", () => map.invalidateSize());
   } catch (error) {
     mapEl.innerHTML = "<span>Unable to load OneMap. Check internet connection.</span>";
+  } finally {
+    window.L = standardLeaflet;
   }
 }
 
@@ -2055,25 +2067,34 @@ async function renderFloodMap() {
 const EVACUATION_POLL_MS = 2 * 60_000;
 
 function blockageColor(type) {
-  return type === "flood" ? "#0f766e" : "#c53d32";
+  if (type === "flood") return "#0f766e";
+  if (type === "incident") return "#c53d32";
+  return "#a92525";
 }
 
 function blockagePopup({ type, label }) {
+  const title = type === "flood" ? "Flood" : type === "incident" ? "Traffic Incident" : "Dengue Cluster";
   return `
     <div class="flood-popup">
-      <span class="severity-pill" style="background:${blockageColor(type)}">${type === "flood" ? "Flood" : "Traffic Incident"}</span>
-      <p>${label || "Blocked area"}</p>
+      <span class="severity-pill" style="background:${blockageColor(type)}">${title}</span>
+      <p>${label || "Hazard area"}</p>
     </div>
   `;
 }
 
-function evacuationRouteSummary({ baseline, rerouted, demo }) {
+function evacuationRouteSummary({ baseline, rerouted, demo, hazards }) {
   const baseSummary = baseline?.features?.[0]?.properties?.summary;
   const reroutedSummary = rerouted?.features?.[0]?.properties?.summary;
   if (!baseSummary || !reroutedSummary) return "";
 
   const fmt = (summary) =>
     `${(summary.distance / 1000).toFixed(1)} km · ${Math.round(summary.duration / 60)} min`;
+
+  const fallbackLayers = hazards
+    ? Object.entries(hazards)
+        .filter(([, layer]) => layer?.source === "demo-fallback")
+        .map(([key]) => key)
+    : [];
 
   return `
     <article class="flood-alert-card evac-summary-card">
@@ -2084,12 +2105,26 @@ function evacuationRouteSummary({ baseline, rerouted, demo }) {
     </article>
     <article class="flood-alert-card evac-summary-card">
       <div>
-        <strong>Re-routed (avoiding blockages)</strong>
+        <strong>Re-routed (avoiding selected hazards)</strong>
         <p>${fmt(reroutedSummary)}</p>
       </div>
     </article>
     ${demo ? `<p class="map-empty">Showing demo route data.</p>` : ""}
+    ${fallbackLayers.length ? `<p class="map-empty">Using cached/demo data for: ${fallbackLayers.join(", ")}.</p>` : ""}
   `;
+}
+
+function evacGeolocationErrorMessage(error) {
+  if (error.code === error.PERMISSION_DENIED) {
+    return "Location permission denied. Enter an address manually instead.";
+  }
+  if (error.code === error.POSITION_UNAVAILABLE) {
+    return "Your location is unavailable right now. Enter an address manually instead.";
+  }
+  if (error.code === error.TIMEOUT) {
+    return "Getting your location timed out. Enter an address manually instead.";
+  }
+  return "Unable to get your location. Enter an address manually instead.";
 }
 
 async function renderEvacuationRouting() {
@@ -2099,30 +2134,72 @@ async function renderEvacuationRouting() {
       <main class="flood-map-shell">
         <section class="dashboard-title">
           <div>
-            <p class="eyebrow">OneMap basemap · openrouteservice · live traffic & flood blockages</p>
+            <p class="eyebrow">OneMap basemap · openrouteservice · live flood, dengue & traffic hazards</p>
             <h1>Dynamic Evacuation Routing</h1>
           </div>
-          <p class="map-updated" data-evac-updated>Click the map to set a start point, then a destination.</p>
+          <p class="map-updated" data-evac-updated>Set a start and destination, or click the map to choose points.</p>
         </section>
         <div class="flood-map-layout">
           <div class="flood-map-canvas">
-            <div id="evacuation-map" aria-label="Map for planning an evacuation route around current blockages"></div>
+            <div id="evacuation-map" aria-label="Map for planning an evacuation route around current hazards"></div>
+            <div class="map-layer-toggle evac-hazard-toggles" aria-label="Hazard layers">
+              <p class="evac-toggle-heading">Hazard layers</p>
+              <div class="evac-hazard-row">
+                <span>Flood alerts</span>
+                <label><input type="checkbox" data-evac-show="flood" checked /> Show</label>
+                <label><input type="checkbox" data-evac-avoid="flood" checked /> Avoid</label>
+              </div>
+              <div class="evac-hazard-row">
+                <span>Road incidents</span>
+                <label><input type="checkbox" data-evac-show="incidents" checked /> Show</label>
+                <label><input type="checkbox" data-evac-avoid="incidents" checked /> Avoid</label>
+              </div>
+              <div class="evac-hazard-row">
+                <span>Dengue clusters</span>
+                <label><input type="checkbox" data-evac-show="dengue" checked /> Show</label>
+                <label><input type="checkbox" data-evac-avoid="dengue" /> Avoid</label>
+              </div>
+            </div>
             <div class="map-layer-toggle evac-controls" aria-label="Routing controls">
               <label><input type="checkbox" data-evac-demo /> Demo mode</label>
-              <button type="button" class="secondary-button compact" data-evac-calculate>Calculate Route</button>
+              <button type="button" class="secondary-button compact" data-evac-calculate disabled>Find Safe Route</button>
               <button type="button" class="secondary-button compact" data-evac-clear>Clear</button>
             </div>
             <ul class="dengue-severity-legend evac-legend" aria-label="Evacuation route legend">
               <li><i style="background:#1d4ed8"></i>Normal route</li>
               <li><i style="background:#c53d32"></i>Re-routed</li>
-              <li><i style="background:#0f766e"></i>Blocked area</li>
+              <li><i style="background:#0f766e"></i>Flood alert</li>
+              <li><i style="background:#a92525"></i>Dengue cluster</li>
             </ul>
           </div>
-          <aside class="flood-alert-rail" aria-label="Route summary and blockages">
+          <aside class="flood-alert-rail" aria-label="Route planner and hazards">
+            <h2>Plan a route</h2>
+            <div class="evac-location-form">
+              <div class="evac-location-field">
+                <label for="evac-start-input">Start</label>
+                <div class="evac-input-row">
+                  <input type="text" id="evac-start-input" data-evac-input="start" placeholder="Address, postal code, or building" />
+                  <button type="button" class="secondary-button compact" data-evac-search="start">Search</button>
+                </div>
+                <button type="button" class="secondary-button compact evac-location-button" data-evac-locate="start">${icon("mapPin")} Use my location</button>
+                <ul class="evac-geocode-results" data-evac-results="start" hidden></ul>
+                <p class="evac-field-status" data-evac-status="start"></p>
+              </div>
+              <div class="evac-location-field">
+                <label for="evac-end-input">Destination</label>
+                <div class="evac-input-row">
+                  <input type="text" id="evac-end-input" data-evac-input="end" placeholder="Address, postal code, or building" />
+                  <button type="button" class="secondary-button compact" data-evac-search="end">Search</button>
+                </div>
+                <button type="button" class="secondary-button compact evac-location-button" data-evac-locate="end">${icon("mapPin")} Use my location</button>
+                <ul class="evac-geocode-results" data-evac-results="end" hidden></ul>
+                <p class="evac-field-status" data-evac-status="end"></p>
+              </div>
+            </div>
             <h2>Route Summary</h2>
-            <div class="flood-alert-list" data-evac-summary><p class="map-empty">Set a start and destination on the map, then press Calculate Route.</p></div>
-            <h2>Active Blockages</h2>
-            <div class="flood-alert-list" data-evac-blockages><p class="map-empty">Loading…</p></div>
+            <div class="flood-alert-list" data-evac-summary><p class="map-empty">Set a start and destination, then press Find Safe Route.</p></div>
+            <h2>Active Hazards</h2>
+            <div class="flood-alert-list" data-evac-hazards><p class="map-empty">Loading…</p></div>
           </aside>
         </div>
       </main>
@@ -2137,20 +2214,29 @@ async function renderEvacuationRouting() {
     attribution: "OneMap | Map data &copy; contributors, <a href=\"https://www.sla.gov.sg/\">Singapore Land Authority</a>"
   }).addTo(map);
 
-  const blockageLayer = L.layerGroup().addTo(map);
+  const floodLayer = L.layerGroup().addTo(map);
+  const incidentLayer = L.layerGroup().addTo(map);
+  const dengueLayer = L.layerGroup().addTo(map);
   const routeLayer = L.layerGroup().addTo(map);
   const markerLayer = L.layerGroup().addTo(map);
+  const hazardLayers = { flood: floodLayer, incidents: incidentLayer, dengue: dengueLayer };
 
   const evac = {
     start: null,
     end: null,
-    blockages: null
+    hazards: null,
+    show: { flood: true, incidents: true, dengue: true },
+    avoid: { flood: true, incidents: true, dengue: false }
   };
+
+  let startMarker = null;
+  let endMarker = null;
 
   const updatedLabel = document.querySelector("[data-evac-updated]");
   const summaryEl = document.querySelector("[data-evac-summary]");
-  const blockagesEl = document.querySelector("[data-evac-blockages]");
+  const hazardsEl = document.querySelector("[data-evac-hazards]");
   const demoToggle = document.querySelector("[data-evac-demo]");
+  const calculateButton = document.querySelector("[data-evac-calculate]");
 
   function placeMarker(latlng, kind) {
     const color = kind === "start" ? "#0f766e" : "#c53d32";
@@ -2163,79 +2249,309 @@ async function renderEvacuationRouting() {
     })
       .bindPopup(kind === "start" ? "Start" : "Destination")
       .addTo(markerLayer);
+
+    if (kind === "start") {
+      if (startMarker) markerLayer.removeLayer(startMarker);
+      startMarker = marker;
+    } else {
+      if (endMarker) markerLayer.removeLayer(endMarker);
+      endMarker = marker;
+    }
     return marker;
+  }
+
+  function updateCalculateButtonState() {
+    calculateButton.disabled = !(evac.start && evac.end);
+  }
+
+  function resetSummary() {
+    summaryEl.innerHTML = `<p class="map-empty">Set a start and destination, then press Find Safe Route.</p>`;
+  }
+
+  // OneMap/geolocation give {lat, lng}; ORS/GeoJSON need [lng, lat] — converted in lineStringToLatLngs and on the backend.
+  async function reverseGeocodeToInput(kind, coord) {
+    const input = document.querySelector(`[data-evac-input="${kind}"]`);
+    if (!input) return;
+    try {
+      const response = await fetch(`/api/onemap/revgeocode?lat=${coord.lat}&lng=${coord.lng}`);
+      const payload = await response.json();
+      const address = payload.address;
+      const label = address ? [address.block, address.road, address.building].filter(Boolean).join(" ").trim() : "";
+      input.value = label || `${coord.lat.toFixed(5)}, ${coord.lng.toFixed(5)}`;
+    } catch (error) {
+      input.value = `${coord.lat.toFixed(5)}, ${coord.lng.toFixed(5)}`;
+    }
+  }
+
+  function focusOnPoints() {
+    if (evac.start && evac.end) {
+      const bounds = L.latLngBounds([evac.start.lat, evac.start.lng], [evac.end.lat, evac.end.lng]);
+      if (typeof map.flyToBounds === "function") {
+        map.flyToBounds(bounds, { duration: 0.6, padding: [60, 60] });
+      } else {
+        map.fitBounds(bounds, { padding: [60, 60] });
+      }
+    } else if (evac.start) {
+      map.flyTo([evac.start.lat, evac.start.lng], 15, { duration: 0.6 });
+    } else if (evac.end) {
+      map.flyTo([evac.end.lat, evac.end.lng], 15, { duration: 0.6 });
+    }
   }
 
   map.on("click", (event) => {
     if (!evac.start || (evac.start && evac.end)) {
-      markerLayer.clearLayers();
-      routeLayer.clearLayers();
-      summaryEl.innerHTML = `<p class="map-empty">Set a start and destination on the map, then press Calculate Route.</p>`;
       evac.start = { lat: event.latlng.lat, lng: event.latlng.lng };
       evac.end = null;
+      if (endMarker) {
+        markerLayer.removeLayer(endMarker);
+        endMarker = null;
+      }
       placeMarker(event.latlng, "start");
-      updatedLabel.textContent = "Start point set. Click the map again to set a destination.";
+      routeLayer.clearLayers();
+      resetSummary();
+      updatedLabel.textContent = "Start point set. Click the map again to set a destination, or use the search fields.";
+      reverseGeocodeToInput("start", evac.start);
+      updateCalculateButtonState();
       return;
     }
 
     evac.end = { lat: event.latlng.lat, lng: event.latlng.lng };
     placeMarker(event.latlng, "end");
-    updatedLabel.textContent = "Start and destination set. Press Calculate Route.";
+    updatedLabel.textContent = "Start and destination set. Press Find Safe Route.";
+    reverseGeocodeToInput("end", evac.end);
+    updateCalculateButtonState();
   });
 
   document.querySelector("[data-evac-clear]").addEventListener("click", () => {
     evac.start = null;
     evac.end = null;
+    startMarker = null;
+    endMarker = null;
     markerLayer.clearLayers();
     routeLayer.clearLayers();
-    summaryEl.innerHTML = `<p class="map-empty">Set a start and destination on the map, then press Calculate Route.</p>`;
-    updatedLabel.textContent = "Click the map to set a start point, then a destination.";
+    resetSummary();
+    updatedLabel.textContent = "Set a start and destination, or click the map to choose points.";
+    document.querySelectorAll("[data-evac-input]").forEach((input) => {
+      input.value = "";
+    });
+    document.querySelectorAll("[data-evac-status]").forEach((status) => {
+      status.textContent = "";
+    });
+    document.querySelectorAll("[data-evac-results]").forEach((list) => {
+      list.hidden = true;
+      list.innerHTML = "";
+    });
+    updateCalculateButtonState();
   });
 
-  async function refreshBlockages() {
+  function applyGeocodeResult(kind, result) {
+    const coord = { lat: result.lat, lng: result.lng };
+    evac[kind] = coord;
+    placeMarker(L.latLng(coord.lat, coord.lng), kind);
+    routeLayer.clearLayers();
+    resetSummary();
+    updateCalculateButtonState();
+    focusOnPoints();
+    updatedLabel.textContent =
+      evac.start && evac.end
+        ? "Start and destination set. Press Find Safe Route."
+        : `${kind === "start" ? "Start" : "Destination"} point set.`;
+  }
+
+  async function geocodeAddress(kind) {
+    const input = document.querySelector(`[data-evac-input="${kind}"]`);
+    const status = document.querySelector(`[data-evac-status="${kind}"]`);
+    const resultsEl = document.querySelector(`[data-evac-results="${kind}"]`);
+    const query = input.value.trim();
+    resultsEl.hidden = true;
+    resultsEl.innerHTML = "";
+
+    if (!query) {
+      status.textContent = "Enter an address, postal code, or building name.";
+      return;
+    }
+
+    status.textContent = "Searching…";
+    try {
+      const response = await fetch(`/api/onemap/search?q=${encodeURIComponent(query)}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Search failed.");
+
+      const results = payload.results || [];
+      if (!results.length) {
+        status.textContent = "No matching locations found. Try a different search.";
+        return;
+      }
+
+      if (results.length === 1) {
+        applyGeocodeResult(kind, results[0]);
+        status.textContent = `Set to ${results[0].address || results[0].name}.`;
+        return;
+      }
+
+      resultsEl.hidden = false;
+      resultsEl.innerHTML = results
+        .slice(0, 6)
+        .map((result, index) => `<li><button type="button" data-evac-result="${index}">${result.address || result.name}</button></li>`)
+        .join("");
+      resultsEl.querySelectorAll("[data-evac-result]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const result = results[Number(button.dataset.evacResult)];
+          applyGeocodeResult(kind, result);
+          resultsEl.hidden = true;
+          resultsEl.innerHTML = "";
+          status.textContent = `Set to ${result.address || result.name}.`;
+        });
+      });
+      status.textContent = `Found ${results.length} matches — choose one below.`;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  }
+
+  function useMyLocation(kind) {
+    const status = document.querySelector(`[data-evac-status="${kind}"]`);
+    if (!navigator.geolocation) {
+      status.textContent = "Geolocation is not supported by this browser. Enter an address instead.";
+      return;
+    }
+
+    status.textContent = "Getting your location…";
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const coord = { lat: position.coords.latitude, lng: position.coords.longitude };
+        applyGeocodeResult(kind, coord);
+        status.textContent = "Using your current location.";
+        await reverseGeocodeToInput(kind, coord);
+      },
+      (error) => {
+        status.textContent = evacGeolocationErrorMessage(error);
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 }
+    );
+  }
+
+  document.querySelectorAll("[data-evac-search]").forEach((button) => {
+    button.addEventListener("click", () => geocodeAddress(button.dataset.evacSearch));
+  });
+  document.querySelectorAll("[data-evac-input]").forEach((input) => {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        geocodeAddress(input.dataset.evacInput);
+      }
+    });
+  });
+  document.querySelectorAll("[data-evac-locate]").forEach((button) => {
+    button.addEventListener("click", () => useMyLocation(button.dataset.evacLocate));
+  });
+
+  function applyShowToggles() {
+    Object.entries(hazardLayers).forEach(([key, layer]) => {
+      if (evac.show[key]) {
+        if (!map.hasLayer(layer)) map.addLayer(layer);
+      } else if (map.hasLayer(layer)) {
+        map.removeLayer(layer);
+      }
+    });
+  }
+
+  function renderHazardLayers() {
+    const hazards = evac.hazards;
+    if (!hazards) return;
+
+    floodLayer.clearLayers();
+    (hazards.flood?.points || []).forEach((point) => {
+      L.circle([point.lat, point.lng], {
+        radius: 250,
+        color: blockageColor("flood"),
+        weight: 1.5,
+        fillColor: blockageColor("flood"),
+        fillOpacity: 0.25
+      })
+        .bindPopup(blockagePopup(point))
+        .addTo(floodLayer);
+    });
+
+    incidentLayer.clearLayers();
+    (hazards.incidents?.points || []).forEach((point) => {
+      L.circle([point.lat, point.lng], {
+        radius: 250,
+        color: blockageColor("incident"),
+        weight: 1.5,
+        fillColor: blockageColor("incident"),
+        fillOpacity: 0.25
+      })
+        .bindPopup(blockagePopup(point))
+        .addTo(incidentLayer);
+    });
+
+    dengueLayer.clearLayers();
+    (hazards.dengue?.geojson?.features || []).forEach((feature) => {
+      const info = dengueClusterInfo(feature);
+      geoJsonFeatureToLayer(feature, {
+        style: () => ({
+          color: dengueColor(info.caseSize),
+          weight: 1.5,
+          fillColor: dengueColor(info.caseSize),
+          fillOpacity: 0.3
+        })
+      })
+        .bindPopup(denguePopup(info))
+        .addTo(dengueLayer);
+    });
+
+    applyShowToggles();
+  }
+
+  function renderHazardList() {
+    const hazards = evac.hazards;
+    if (!hazards) return;
+
+    const items = [];
+    (hazards.flood?.points || []).forEach((point) => items.push({ type: "flood", title: "Flood alert", label: point.label }));
+    (hazards.incidents?.points || []).forEach((point) => items.push({ type: "incident", title: "Traffic incident", label: point.label }));
+    (hazards.dengue?.geojson?.features || []).forEach((feature) => {
+      const info = dengueClusterInfo(feature);
+      items.push({
+        type: "dengue",
+        title: "Dengue cluster",
+        label: `${info.locality} — ${info.caseSize} case${info.caseSize === 1 ? "" : "s"}`
+      });
+    });
+
+    hazardsEl.innerHTML = items.length
+      ? items
+          .map(
+            (item) => `
+              <article class="flood-alert-card">
+                <span class="severity-pill" style="background:${blockageColor(item.type)}">${item.title}</span>
+                <div><p>${item.label || ""}</p></div>
+              </article>
+            `
+          )
+          .join("")
+      : `<p class="map-empty">No active hazards reported right now.</p>`;
+  }
+
+  async function refreshHazards() {
     try {
       const demo = demoToggle.checked;
-      const response = await fetch(`/api/evacuation/blockages?demo=${demo}`);
+      const response = await fetch(`/api/evacuation/hazards?demo=${demo}`);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Unable to load blockage data.");
+      if (!response.ok) throw new Error(payload.error || "Unable to load hazard data.");
 
-      evac.blockages = payload;
-      blockageLayer.clearLayers();
-      (payload.points || []).forEach((point) => {
-        L.circle([point.lat, point.lng], {
-          radius: 250,
-          color: blockageColor(point.type),
-          weight: 1.5,
-          fillColor: blockageColor(point.type),
-          fillOpacity: 0.25
-        })
-          .bindPopup(blockagePopup(point))
-          .addTo(blockageLayer);
-      });
-
-      blockagesEl.innerHTML = payload.points?.length
-        ? payload.points
-            .map(
-              (point) => `
-                <article class="flood-alert-card">
-                  <span class="severity-pill" style="background:${blockageColor(point.type)}">${point.type === "flood" ? "Flood" : "Incident"}</span>
-                  <div>
-                    <strong>${point.type === "flood" ? "Flood alert" : "Traffic incident"}</strong>
-                    <p>${point.label || ""}</p>
-                  </div>
-                </article>
-              `
-            )
-            .join("")
-        : `<p class="map-empty">No active blockages reported right now.</p>`;
+      evac.hazards = payload;
+      renderHazardLayers();
+      renderHazardList();
     } catch (error) {
-      blockagesEl.innerHTML = `<p class="map-empty error">${error.message}</p>`;
+      hazardsEl.innerHTML = `<p class="map-empty error">${error.message}</p>`;
     }
   }
 
   async function calculateRoute() {
     if (!evac.start || !evac.end) {
-      updatedLabel.textContent = "Set a start and destination on the map first.";
+      updatedLabel.textContent = "Set a start and destination first.";
       return;
     }
 
@@ -2245,12 +2561,14 @@ async function renderEvacuationRouting() {
       const response = await fetch("/api/evacuation/route", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ start: evac.start, end: evac.end, demo: demoToggle.checked })
+        body: JSON.stringify({ start: evac.start, end: evac.end, demo: demoToggle.checked, avoid: evac.avoid })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Unable to compute a route.");
 
-      evac.blockages = payload.blockages;
+      evac.hazards = payload.hazards;
+      renderHazardLayers();
+      renderHazardList();
       routeLayer.clearLayers();
 
       const baselineCoords = payload.baseline?.features?.[0]?.geometry?.coordinates;
@@ -2291,15 +2609,31 @@ async function renderEvacuationRouting() {
     }
   }
 
-  document.querySelector("[data-evac-calculate]").addEventListener("click", calculateRoute);
+  calculateButton.addEventListener("click", calculateRoute);
+
+  document.querySelectorAll("[data-evac-show]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      evac.show[checkbox.dataset.evacShow] = checkbox.checked;
+      applyShowToggles();
+    });
+  });
+
+  document.querySelectorAll("[data-evac-avoid]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      evac.avoid[checkbox.dataset.evacAvoid] = checkbox.checked;
+      if (evac.start && evac.end) calculateRoute();
+    });
+  });
+
   demoToggle.addEventListener("change", () => {
-    refreshBlockages();
+    refreshHazards();
     if (evac.start && evac.end) calculateRoute();
   });
 
-  await refreshBlockages();
+  updateCalculateButtonState();
+  await refreshHazards();
   evacuationMapTimer = window.setInterval(async () => {
-    await refreshBlockages();
+    await refreshHazards();
     if (evac.start && evac.end) await calculateRoute();
   }, EVACUATION_POLL_MS);
 }

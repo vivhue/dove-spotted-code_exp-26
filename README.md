@@ -269,12 +269,41 @@ Dynamic Evacuation Routing
 ---------------------------
 
 Plan a driving route across Singapore that avoids roads currently affected by
-live flood alerts and traffic incidents. Open `#/evacuation-routing` from the
-dashboard, click the map once to set a start point and again to set a
-destination, then press `Calculate Route`. The map shows the normal route
-(blue) and a re-routed path (red dashed) that avoids buffered "blockage"
-zones (teal/red shading) built from live flood alerts and traffic incidents.
-Blockages and the route are refreshed automatically every 2 minutes.
+live flood alerts, NEA dengue clusters, and LTA traffic incidents. Open
+`#/evacuation-routing` from the dashboard.
+
+Setting a start and destination:
+
+- Type an address, postal code, or building name into the `Start` /
+  `Destination` fields and press `Search`. Results come from the OneMap
+  Search API; if more than one match is found, pick the right one from the
+  list shown.
+- Or press `Use my location` to fill a field from the browser's Geolocation
+  API. If permission is denied, the position is unavailable, or the request
+  times out, a clear message is shown and you can fall back to typing an
+  address.
+- Or click the map: the first click sets the start point, the second sets the
+  destination. Each click reverse-geocodes to fill in the matching field.
+
+Once both points are set, press `Find Safe Route`. The map shows the normal
+route (blue) and a re-routed path (red dashed) that avoids the hazards
+selected below.
+
+Hazard layers:
+
+Each hazard layer (Flood alerts, Road incidents, Dengue clusters) has two
+independent toggles:
+
+- `Show` — draw the hazard on the map (flood/incident points are buffered
+  circles; dengue clusters are drawn from their actual NEA polygon shapes).
+- `Avoid` — include the hazard in the `avoid_polygons` sent to
+  openrouteservice. Flood points and incident points are buffered into small
+  squares before being avoided; dengue cluster polygons are used as-is.
+
+By default, flood alerts and road incidents are avoided, while dengue
+clusters are shown but not avoided (you can change this in the toggles).
+Changing any `Avoid` toggle recomputes the route immediately. Hazards and the
+route are also refreshed automatically every 2 minutes.
 
 Required environment variables (add to `.env` in the project root):
 
@@ -286,16 +315,23 @@ EVAC_BLOCKAGE_BUFFER_M=600
 
 - `ORS_API_KEY` — openrouteservice API key, used for the Directions API.
 - `LTA_ACCOUNT_KEY` — LTA DataMall account key, used for live traffic incidents.
-  If unset, traffic incidents are skipped and only flood alerts are used as
-  blockages.
-- `EVAC_BLOCKAGE_BUFFER_M` — radius (in metres) used to turn each blockage point
-  into an "avoid" polygon for routing. Defaults to `600`.
+  If unset, traffic incidents are skipped and that layer falls back to demo
+  data.
+- `EVAC_BLOCKAGE_BUFFER_M` — radius (in metres) used to turn each flood/incident
+  point into an "avoid" polygon for routing. Defaults to `600`. Dengue cluster
+  polygons are not buffered; they are used as-is.
+
+The OneMap Search and reverse-geocoding endpoints used for the location
+inputs are public and do not require an API key.
 
 Demo mode:
 
 - Tick the `Demo mode` checkbox on the routing page to use fixed sample
-  blockages and a precomputed sample route from `backend/data/evacuation-demo.json`,
-  without calling any external APIs.
-- The backend also automatically falls back to this demo data if `ORS_API_KEY`
-  is missing, the openrouteservice request fails, or no live blockage data is
-  available — so a live demo keeps working even if an upstream API is slow or down.
+  hazards (flood points, an incident point, and a dengue cluster polygon) and
+  a precomputed sample route from `backend/data/evacuation-demo.json`, without
+  calling any external APIs.
+- The backend also automatically falls back to demo data on a per-layer basis
+  if `ORS_API_KEY` is missing, the openrouteservice request fails, or any
+  individual hazard feed (flood, dengue, or traffic incidents) is unavailable
+  or returns no data — so a live demo keeps working even if an upstream API is
+  slow or down.
