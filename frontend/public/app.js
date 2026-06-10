@@ -118,7 +118,7 @@ const SINGAPORE_HOSPITALS = [
 
 function shieldIcon() {
   return `
-    <img class="brand-mark" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
+    <img class="brand-mark" src="/assets/logo.png" alt="" aria-hidden="true" />
   `;
 }
 
@@ -1038,7 +1038,7 @@ async function renderDashboard() {
             <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
               <span class="hamburger-lines" aria-hidden="true"></span>
             </button>
-            <img class="command-brand-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
+            <img class="command-brand-logo" src="/assets/logo.png" alt="" aria-hidden="true" />
             <div>
               <h1>AIECC</h1>
               <p>${OPS_BRAND_SUBTITLE}</p>
@@ -1408,7 +1408,7 @@ function opsNavigationMarkup(active = "overview") {
     <div class="ops-menu-backdrop" data-ops-menu-backdrop hidden></div>
     <aside class="ops-navigation" data-ops-menu aria-hidden="true" aria-label="Dashboard navigation">
       <div class="ops-navigation-header">
-        <img class="ops-navigation-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
+        <img class="ops-navigation-logo" src="/assets/logo.png" alt="" aria-hidden="true" />
         <div>
           <strong>AIECC</strong>
           <span>${OPS_BRAND_SUBTITLE}</span>
@@ -1438,7 +1438,7 @@ function opsShellMarkup({ active = "overview", session = null, content = "" } = 
               <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
                 <span class="hamburger-lines" aria-hidden="true"></span>
               </button>
-              <img class="ops-title-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
+              <img class="ops-title-logo" src="/assets/logo.png" alt="" aria-hidden="true" />
               <h1>AIECC</h1>
             </div>
             <p>${OPS_BRAND_SUBTITLE}</p>
