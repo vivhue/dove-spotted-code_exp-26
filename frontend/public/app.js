@@ -2624,7 +2624,7 @@ function opsShellMarkup({ active = "overview", session = null, content = "" } = 
             <button class="ops-menu-button" type="button" data-open-ops-menu aria-label="Open dashboard navigation" aria-expanded="false">
               <span class="hamburger-lines" aria-hidden="true"></span>
             </button>
-            <img class="ops-title-logo" src="/assets/aiecc-logo.svg" alt="" aria-hidden="true" />
+            <img class="ops-title-logo" src="/assets/logo.png" alt="" aria-hidden="true" />
             <div class="ops-brand-copy">
               <h1>AIECC</h1>
               <p>${OPS_BRAND_SUBTITLE}</p>
